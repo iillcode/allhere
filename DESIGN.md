@@ -108,6 +108,12 @@ components:
     typography: "{typography.body}"
     rounded: "{rounded.md}"
     padding: "0"
+  resource-album:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    typography: "{typography.body}"
+    rounded: "{rounded.sm}"
+    padding: "0"
 ---
 
 # Design System: Allhere Library
@@ -228,6 +234,14 @@ Controls use generous pill silhouettes: the search field is the soft capsule, bu
 
 ### Resource Card
 The signature collection tile pairs clipped artwork or a type-colored placeholder with a single-line title, source host, and compact status metadata. Selection is communicated with both a blue border and a light blue surface. Grid/list switching preserves the same source, type, and status hierarchy.
+
+### Resource Albums
+All resources shows an overview of the selected page, grouped into Images, Icons, Video & audio, Links, Fonts, and Files. Each populated section has an outlined type icon, title, total count, and View all action above up to ten previews. The preview grid always has five columns, so ten images form two rows of five even in a 320px sidebar. Quiet dividers separate sections; thumbnails omit individual badges and action menus. Links use site marks with short captions, while nonvisual resources use their existing type placeholders. Files includes documents, stylesheets, scripts, and other resources.
+
+The entire section opens its matching resource tab and retains the source page. Keyboard activation focuses that tab. Links opens the existing list view. Choosing All resources returns to the section overview. When All pages is explicitly selected, each webpage has its own group of sections; opening one scopes the destination tab to that page. Empty sections are omitted, empty pages retain the existing empty state, and new captures update preview counts without exceeding ten thumbnails.
+
+### Dragging Resources
+Cards, list names, and album thumbnails use the grab cursor and retain the existing layout. Hover or focus prepares file bytes; the dots button shows a spinner during preparation. Its custom menu includes Prepare for dragging, and the existing status notice reports readiness or fetch failures. A dragged item dims while leaving its source visible. Links and pages carry URLs; downloadable resources carry a named file. File inputs respect accepted formats and disabled state. Failed drops use a compact blue status notice on the destination page. The 64 MB limit and supported upload behavior are documented in README.md.
 
 ### Details Pane
 The details pane uses thin dividers to group a resource preview, source and address, local signal explanations, and metadata. The compact layout presents it as a full-height overlay with a dimmed canvas; its sections retain the same white surface and small type hierarchy.

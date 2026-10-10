@@ -36,6 +36,7 @@ export type CapturedResource = {
   pageTitle: string;
   label: string;
   alt?: string;
+  description?: string;
   width?: number;
   height?: number;
   mimeType?: string;
@@ -371,17 +372,18 @@ export function parseArchive(value: unknown): LibraryArchive {
           return [{
             id: stringId,
             kind: resource.kind,
-            url: resource.url.slice(0, 8_000),
+            url: resource.url,
             pageUrl: pageUrl.href,
-            pageTitle: pageTitle.slice(0, 500),
-            label: resource.label.slice(0, 500),
-            ...(typeof resource.alt === "string" ? { alt: resource.alt.slice(0, 1_000) } : {}),
+            pageTitle,
+            label: resource.label,
+            ...(typeof resource.alt === "string" ? { alt: resource.alt } : {}),
+            ...(typeof resource.description === "string" ? { description: resource.description } : {}),
             ...(Number.isFinite(resource.width) ? { width: resource.width } : {}),
             ...(Number.isFinite(resource.height) ? { height: resource.height } : {}),
-            ...(typeof resource.mimeType === "string" ? { mimeType: resource.mimeType.slice(0, 200) } : {}),
+            ...(typeof resource.mimeType === "string" ? { mimeType: resource.mimeType } : {}),
             ...(resource.saved === true ? { saved: true } : {}),
             capturedAt: resourceCapturedAt,
-            security: inspectResourceUrl(resource.url.slice(0, 8_000), pageUrl.href, now),
+            security: inspectResourceUrl(resource.url, pageUrl.href, now),
           } satisfies CapturedResource];
         })
       : [];
@@ -391,9 +393,9 @@ export function parseArchive(value: unknown): LibraryArchive {
         ? candidate.id
         : `imported_capture_${captureIndex}`,
       pageUrl: pageUrl.href,
-      pageTitle: pageTitle.slice(0, 500),
+      pageTitle,
       hostname: pageUrl.hostname,
-      ...(typeof candidate.faviconUrl === "string" ? { faviconUrl: candidate.faviconUrl.slice(0, 8_000) } : {}),
+      ...(typeof candidate.faviconUrl === "string" ? { faviconUrl: candidate.faviconUrl } : {}),
       capturedAt,
       resources,
     } satisfies PageCapture];
@@ -419,28 +421,64 @@ export function mergeCaptures(
   );
 }
 
+// Only URL parameters that describe a resized representation are collapsed.
+// Signed IDs and other query parameters stay part of the resource identity.
+export function resourceIdentity(resource: Pick<CapturedResource, "kind" | "url">): string {
+  if (resource.kind !== "image" && resource.kind !== "icon") return `${resource.kind}:${resource.url}`;
+  try {
+    const url = new URL(resource.url);
+    // SVG fragment IDs select different symbols in the same sprite file.
+    if (resource.kind !== "icon") url.hash = "";
+    for (const name of [...url.searchParams.keys()]) {
+      if (/^(?:dpr|fm|format|h|height|imwidth|q|quality|sz|w|width|fbclid|gclid|igshid|utm_.*)$/i.test(name)) {
+        url.searchParams.delete(name);
+      }
+    }
+    url.searchParams.sort();
+    return `visual:${url.href}`;
+  } catch { return `visual:${resource.url}`; }
+}
+
+export function dedupeResources(resources: CapturedResource[]): CapturedResource[] {
+  const result: CapturedResource[] = [];
+  const indexes = new Map<string, number>();
+  for (const resource of resources) {
+    const key = resourceIdentity(resource);
+    const index = indexes.get(key);
+    if (index === undefined) { indexes.set(key, result.length); result.push(resource); continue; }
+    const existing = result[index];
+    const visual = resource.kind === "image" || resource.kind === "icon";
+    const oldArea = (existing.width ?? 0) * (existing.height ?? 0);
+    const newArea = (resource.width ?? 0) * (resource.height ?? 0);
+    const preferNew = visual ? newArea > oldArea : true;
+    const winner = preferNew ? resource : existing;
+    const descriptive = (label: string) => !/^(?:image|icon|page icon|inline svg icon|background image|background icon)$/i.test(label);
+    result[index] = {
+      ...winner,
+      id: existing.id,
+      kind: visual && (existing.kind === "icon" || resource.kind === "icon") ? "icon" : winner.kind,
+      label: descriptive(winner.label) ? winner.label : descriptive(resource.label) ? resource.label : descriptive(existing.label) ? existing.label : winner.label,
+      alt: winner.alt || resource.alt || existing.alt,
+      description: winner.description || resource.description || existing.description,
+      saved: existing.saved || resource.saved || undefined,
+      capturedAt: resource.capturedAt,
+    };
+  }
+  return result;
+}
+
 export function upsertPageCapture(
   current: PageCapture[],
   incoming: PageCapture,
 ): PageCapture[] {
   const previous = current.find((capture) => capture.pageUrl === incoming.pageUrl);
-  const previousResources = new Map(
-    previous?.resources.map((resource) => [`${resource.kind}:${resource.url}`, resource]) ?? [],
-  );
   const replacement = previous
     ? {
         ...incoming,
         id: previous.id,
-        resources: incoming.resources.map((resource) => {
-          const existing = previousResources.get(`${resource.kind}:${resource.url}`);
-          return {
-            ...resource,
-            ...(existing?.kind === "image" && existing.saved ? { saved: true } : {}),
-            ...(existing ? { id: existing.id } : {}),
-          };
-        }),
+        resources: dedupeResources([...previous.resources, ...incoming.resources]),
       }
-    : incoming;
+    : { ...incoming, resources: dedupeResources(incoming.resources) };
   return mergeCaptures(
     current.filter((capture) => capture.pageUrl !== incoming.pageUrl),
     [replacement],
