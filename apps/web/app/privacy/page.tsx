@@ -15,8 +15,8 @@ export default function PrivacyPage() {
         {
           title: "What Allhere does",
           paragraphs: [
-            "Allhere helps you collect and organize resources from webpages in a local library. When you open the extension side panel, it scans the active HTTP or HTTPS page. While the panel stays open, changing tabs, navigating, or changes to resources on the active page can trigger another scan. The Scan page button lets you scan again manually.",
-            "On pages scanned by the open side panel, a small helper watches for resource changes and supports file drag and drop. It may remain on that page until the page closes or navigates, but it does not save a page collection by itself while the panel is closed. Chrome does not allow Allhere to scan restricted browser pages.",
+            "Allhere helps you collect and organize resources from webpages in a local library. A scan starts only when you choose Scan page. Opening the extension panel, switching tabs, navigating, or changes to page content do not start a scan. Choose Scan page again whenever you want to refresh a page's collection.",
+            "After a requested scan, a small helper supports file drag and drop on that page. It may remain until the page closes or navigates, but it does not watch for page-resource changes or start scans. Chrome does not allow Allhere to scan restricted browser pages.",
           ],
         },
         {
@@ -44,7 +44,8 @@ export default function PrivacyPage() {
         {
           title: "Website access and limited use",
           paragraphs: [
-            "The extension requests access to HTTP and HTTPS webpages so it can scan whichever regular page you use with Allhere, notice changes while the side panel is open, and support dragging a selected resource to a page. It also uses browser storage, downloads, and the side panel to provide the library and file actions you choose.",
+            "The extension uses the active tab's URL when you request a scan or site access to identify which website permission to request. It asks Chrome for access to that specific HTTP or HTTPS site when needed, rather than requiring access to every website when installed. Your decision to allow access is stored by Chrome; you can change it in the extension's site-access settings. Granting access does not start automatic scans.",
+            "Downloading, copying an icon as SVG, preparing a file to drag, or creating a ZIP may ask for access to the original hosts of the selected resources. A bulk action can request the hosts of all resources you selected. Allhere also uses browser storage, downloads, and the side panel to provide the library and file actions you choose.",
             "Allhere's use of information received from Chrome APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. That information is used only to provide or improve the features described here and is not used for personalized advertising or sold to third parties.",
           ],
         },

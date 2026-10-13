@@ -1,6 +1,7 @@
 // Black-box checks against the built extension, using isolated Brave storage and downloads.
 // Run after building: node scripts/verify-image-actions.mjs [optional-image-url]
 import assert from "node:assert/strict";
+import { localFixtureExtension } from "./extension-fixture.mjs";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -8,7 +9,6 @@ import { createServer as portServer } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const { unzipSync } = createRequire(new URL("../packages/library-ui/package.json", import.meta.url))("fflate");
 
@@ -94,7 +94,7 @@ const debugPort = await new Promise((done) => {
 const profile = await mkdtemp(join(tmpdir(), "allhere-image-actions-"));
 const downloads = join(profile, "test-downloads");
 await mkdir(downloads);
-const extension = fileURLToPath(new URL("../apps/extension/out", import.meta.url));
+const extension = await localFixtureExtension(profile);
 const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run",
   "--no-default-browser-check", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "about:blank",
@@ -537,8 +537,11 @@ try {
     // The native request uses a genuine user gesture. Missing-host and denied-prompt
     // branches below are simulated only in this disposable browser profile.
     await page.evaluate("document.querySelector('[aria-label=\"Open library menu\"]').click()",true);
-    await page.evaluate("[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.includes('Allow website access')).click()",true);
-    await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('Website access is enabled')"),'Website access menu did not request native permissions');
+    const {targetId:accessTab}=await browserCdp.send('Target.createTarget',{url:base+'/source'});
+    await delay(400);
+    await page.evaluate("[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.includes('Allow access to this site')).click()",true);
+    await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('Access to this site is enabled')"),'Site access menu did not request native permissions');
+    await browserCdp.send('Target.closeTarget',{targetId:accessTab});
     const workerInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.type==='service_worker'),'Permission test worker is missing');
     const permissionWorker=new Cdp(workerInfo.webSocketDebuggerUrl);await permissionWorker.ready();
     const permissionOrigin='http://127.0.0.1/*';
@@ -563,6 +566,8 @@ try {
     const linksInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===linksTarget),'Media links tab did not open');
     const links=new Cdp(linksInfo.webSocketDebuggerUrl);await links.ready();
     await links.send('Page.bringToFront');
+    await until(()=>links.evaluate("document.readyState==='complete'"),'Media links page did not finish loading');
+    await page.evaluate("document.querySelector('.button--scan').click()",true);
     const scanned=await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']?.find(capture=>capture.pageUrl===${JSON.stringify(base+'/media-links')}))`),'Media links page was not scanned');
     const videos=scanned.resources.filter(resource=>resource.kind==='video');
     assert.deepEqual(videos.map(resource=>resource.url),[base+'/direct-video.mp4'],'Only the direct video file should be captured as video');
@@ -644,6 +649,16 @@ try {
     try {
       await live.send('Page.bringToFront');
       const read=()=>page.evaluate(`(async()=>{const data=await chrome.storage.local.get('allhere.library.v1');return data['allhere.library.v1'].find(c=>c.pageUrl===${JSON.stringify(base+'/scan-page')});})()`);
+      await delay(1200);
+      assert.equal(await read(),undefined,'Opening a webpage must wait for Scan page');
+      assert.equal(await live.evaluate('Boolean(globalThis.__allhereFileDropInstalled)'),false,'Unscanned pages must not receive a page helper');
+      await page.evaluate(`(()=>{window.__scanRequests=[];window.__siteRequest=chrome.permissions.request.bind(chrome.permissions);window.__denyScan=true;chrome.permissions.request=options=>{window.__scanRequests.push({...options,gesture:navigator.userActivation.isActive});return window.__denyScan?Promise.resolve(false):window.__siteRequest(options);};})()`);
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('Access to this site was not granted')"),'Denied scanning needs a retry message');
+      assert.equal(await read(),undefined,'Denied access must not save a capture');
+      assert.deepEqual(await page.evaluate('window.__scanRequests[0]'),{origins:['http://127.0.0.1/*'],gesture:true},'Scan must request only the active site with a user gesture');
+      await page.evaluate('window.__denyScan=false');
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
       const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
       const asset=(snapshot,path)=>snapshot.resources.filter(item=>item.url.includes(path));
       assert.ok(asset(initial,'/first.png').length===1 && asset(initial,'/lazy.png').length===1,'Loaded and lazy images should both be kept');
@@ -671,13 +686,17 @@ try {
       const first=asset(initial,'/first.png')[0];
       await page.evaluate(`(async()=>{const data=await chrome.storage.local.get('allhere.library.v1');const captures=data['allhere.library.v1'];const found=captures.find(c=>c.pageUrl===${JSON.stringify(base+'/scan-page')});found.resources.find(r=>r.url.includes('/first.png')).saved=true;await chrome.storage.local.set({'allhere.library.v1':captures});})()`);
       await live.evaluate("document.querySelector('#first').remove();const later=new Image();later.src='/late.png';later.alt='Later image';document.body.append(later)");
-      const updated=await until(async()=>{const value=await read();return value?.resources.some(item=>item.url.includes('/late.png'))?value:null},'Dynamic image was not automatically added',15000);
-      const afterUpdate=await until(async()=>{const state=await page.evaluate("({source:document.querySelector('.page-scope__selection strong')?.textContent,section:document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab'),list:document.querySelector('[aria-label=\"List view\"]')?.getAttribute('aria-pressed'),scroll:window.scrollY,images:Number(document.querySelector('[data-resource-tab=images] span')?.textContent),notice:document.querySelector('.notice')?.textContent})");return state.images>beforeUpdate.images?state:null},'New image did not appear in the current sidebar section');
+      await delay(2200);
+      assert.ok(!(await read()).resources.some(item=>item.url.includes('/late.png')),'Page changes must wait for another Scan page click');
+      const afterUpdate=await page.evaluate("({source:document.querySelector('.page-scope__selection strong')?.textContent,section:document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab'),list:document.querySelector('[aria-label=\"List view\"]')?.getAttribute('aria-pressed'),scroll:window.scrollY,images:Number(document.querySelector('[data-resource-tab=images] span')?.textContent),notice:document.querySelector('.notice')?.textContent})");
       assert.equal(afterUpdate.source,beforeUpdate.source,'Background scan changed the selected source page');
       assert.equal(afterUpdate.section,beforeUpdate.section,'Background scan returned to All resources');
       assert.equal(afterUpdate.list,beforeUpdate.list,'Background scan changed the layout');
       assert.equal(afterUpdate.scroll,beforeUpdate.scroll,'Background scan reset the scroll position');
       assert.equal(afterUpdate.notice,beforeUpdate.notice,'Background scan replaced the sidebar message');
+      assert.equal(afterUpdate.images,beforeUpdate.images,'Page changes must not add images to the library');
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      const updated=await until(async()=>{const value=await read();return value?.resources.some(item=>item.url.includes('/late.png'))?value:null},'Manual rescan did not collect the new image');
       assert.ok(updated.resources.some(item=>item.label==='Blob image'&&item.url.startsWith('data:image/webp;base64,')),'Blob image must be stored with durable bytes and actual type');
       assert.ok(asset(updated,'/first.png').length===1 && asset(updated,'/first.png')[0].saved,'Earlier saved image and bookmark must survive');
       assert.equal(asset(updated,'/first.png')[0].id,first.id,'Stable image ID must survive rescans');
@@ -688,7 +707,8 @@ try {
       await page.evaluate("document.querySelector('[data-resource-tab=images]').click()",true);
       await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Image actions check'"),'Saved source page could not be selected');
       await live.evaluate("const extra=new Image();extra.src='/late2.png';extra.alt='Another later image';document.body.append(extra)");
-      await until(async()=>{const value=await read();return value?.resources.some(item=>item.url.includes('/late2.png'))?value:null},'Second dynamic image was not added',15000);
+      await delay(1800);
+      assert.ok(!(await read()).resources.some(item=>item.url.includes('/late2.png')),'A second page update must wait for Scan page');
       assert.equal(await page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent"),'Image actions check','Background scan hijacked a manually selected source');
       assert.equal(await page.evaluate("document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab')"),'images','Background scan changed the section on another source');
       await page.evaluate("document.querySelector('.button--scan').click()",true);
@@ -697,19 +717,45 @@ try {
       assert.deepEqual(repeated.resources.filter(item=>item.description?.endsWith('font icon')).map(item=>item.url).sort(), fontIcons.map(item=>item.url).sort(), 'Repeated font captures must retain identical bytes');
       assert.equal(new Set(repeated.resources.map(resource=>resource.kind+':'+resource.url)).size,repeated.resources.length,'No exact duplicates');
       await live.evaluate("const glyph=document.createElement('mat-icon');glyph.className='font-glyph';glyph.setAttribute('data-mat-icon-type','font');glyph.setAttribute('aria-label','Dynamic font glyph');glyph.textContent='M';document.body.append(glyph)");
-      const withGlyph=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph')?value:null},'A dynamic font glyph was not added in the background');
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      const withGlyph=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph')?value:null},'Manual scan did not collect a dynamic font glyph');
       const originalGlyph=withGlyph.resources.find(item=>item.label==='Dynamic font glyph').url;
       await live.evaluate("document.querySelector('[aria-label=\"Dynamic font glyph\"]').firstChild.data='N'");
-      await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph'&&item.url!==originalGlyph)},'Changing a font icon text node did not trigger a background capture');
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph'&&item.url!==originalGlyph)},'Manual scan did not collect a changed font icon');
+      const beforePendingScan=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+      await page.evaluate("window.__normalScanRequest=chrome.permissions.request;chrome.permissions.request=()=>new Promise(resolve=>{window.__resolveScanAccess=resolve;})");
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      await until(()=>page.evaluate("typeof window.__resolveScanAccess==='function'"),'The pending scan did not request access');
       const {targetId:otherId}=await browserCdp.send('Target.createTarget',{url:base+'/scan-frame'});
       const otherInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===otherId),'Second tab did not open');
       const other=new Cdp(otherInfo.webSocketDebuggerUrl);await other.ready();
       try {
         await other.send('Page.bringToFront');
-        await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Asset frame'"),'Tab switch did not select and scan the new page');
+        await page.evaluate("window.__resolveScanAccess(true);chrome.permissions.request=window.__normalScanRequest;delete window.__normalScanRequest;delete window.__resolveScanAccess");
+        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('The active page changed')"),'Switching tabs during permission approval must require a new Scan page click');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforePendingScan,'An old permission approval must not capture the newly active tab');
+        const requestCount=await page.evaluate('window.__scanRequests.length');
+        await delay(1800);
+        assert.equal(await page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent"),'Live gallery','Tab switches must retain the saved source');
+        assert.equal(await page.evaluate('window.__scanRequests.length'),requestCount,'Tab switches must not request site access');
+        assert.equal(await page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame')}))`),false,'A new tab must wait for Scan page');
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Asset frame'"),'Scan page did not collect the newly active tab');
         assert.equal(await page.evaluate("document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab')"),'images','Tab switch reset the selected section');
+        const snapshot=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+        await other.send('Page.navigate',{url:base+'/scan-frame?next=1'});
+        await delay(1800);
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),snapshot,'Navigation must not change library storage');
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame?next=1')}))`),'Scan page did not collect a navigated page');
+        await page.send('Page.reload');
+        await until(()=>page.evaluate("Boolean(document.querySelector('.allhere-shell'))"),'Panel did not reopen');
+        const reopened=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+        await delay(1600);
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),reopened,'Reopening the panel must not scan');
       } finally {other.close();}
-      console.log(`PASS live gallery: ${repeated.resources.length} stable resources; background updates preserve sidebar position and selection, and tab switches scan the new page.`);
+      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; site-scoped access and denial; opening, tab switches, navigation, and page updates wait for Scan page.`);
     } finally {live.close();}
   } else if (dragOnly) {
     const {targetId:destinationId}=await browserCdp.send('Target.createTarget',{url:base+'/destination'});
@@ -718,9 +764,10 @@ try {
     try {
       await until(()=>dest.evaluate("!!document.querySelector('#drop')"),'Upload fixture did not load');
       await dest.send('Page.bringToFront');
-      await delay(1600);
+      await page.evaluate("document.querySelector('.button--scan').click()",true);
+      await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/destination')}))`),'Manual scan did not finish on the destination page');
       await page.evaluate(`chrome.storage.local.set({"allhere.library.v1":${JSON.stringify([capture])}})`);
-      // Lock the source selection so automatic active-tab scans do not replace it.
+      // Return to the fixture library after the user-requested destination scan.
       await selectSource(capture.pageTitle);
       async function dragPayload(entry, selector='.resource-card') {
         const category=entry.kind==='icon'?'Icons':entry.kind==='font'?'Fonts':['video','audio'].includes(entry.kind)?'Video & audio':['document','stylesheet','script','other'].includes(entry.kind)?'Files':entry.kind==='link'?'Links':'Images';

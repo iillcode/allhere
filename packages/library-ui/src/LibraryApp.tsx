@@ -62,7 +62,7 @@ import {
   type RiskLevel,
 } from "@allhere/core";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type HTMLAttributes, type ReactNode } from "react";
-import type { CaptureChangeReason, LibraryAdapter } from "./adapters";
+import type { LibraryAdapter } from "./adapters";
 import { iconAsSvg, loadImageFile } from "./assetFiles";
 import { createResourceZip } from "./bulkExport";
 import { extensionForMime, loadDownloadFile } from "./downloadFiles";
@@ -76,6 +76,7 @@ import { LibraryManager } from "./LibraryManager";
 import { DownloadTray } from "./DownloadTray";
 import { useDownloads, youtubeId } from "./downloads";
 import { emptyCaptureExclusions, filterExcludedCapture, restorePageCapture, scopeSavedCaptures, type CaptureExclusions } from "./libraryManagement";
+import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 type Mode = "web" | "extension";
 type Category = "all" | "pages" | "images" | "saved" | "icons" | "fonts" | "links" | "media" | "files";
@@ -721,15 +722,10 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const libraryMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const savedMenuItemRef = useRef<HTMLButtonElement>(null);
   const captureSequenceRef = useRef(0);
-  const capturesInFlightRef = useRef(0);
   const capturesRef = useRef<PageCapture[]>([]);
-  const autoSelectPendingRef = useRef(false);
-  const activePageUrlRef = useRef<string | null>(null);
-  const managementOpenRef = useRef(false);
   const exclusionsRef = useRef<CaptureExclusions>(emptyCaptureExclusions());
   const libraryWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const managementMutationInFlight = useRef(false);
-  const captureHandlerRef = useRef<(reason: CaptureChangeReason) => Promise<void>>(async () => undefined);
 
   useEffect(() => {
     const header = topbarRef.current;
@@ -974,101 +970,47 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     return pending;
   }
 
-  const saveCapture = (capture: PageCapture, reason: CaptureChangeReason | "manual") => updateLibrary((previous, currentExclusions) => {
-    const exclusions = reason === "manual" ? restorePageCapture(currentExclusions, capture.pageUrl) : currentExclusions;
+  const saveCapture = (capture: PageCapture, sequence: number) => updateLibrary((previous, currentExclusions) => {
+    if (sequence !== captureSequenceRef.current) return { captures: previous, exclusions: currentExclusions, savedCapture: undefined };
+    const exclusions = restorePageCapture(currentExclusions, capture.pageUrl);
     const allowedCapture = filterExcludedCapture(capture, exclusions);
-    if (!allowedCapture) return { captures: previous, exclusions, savedCapture: undefined, wasEmpty: previous.length === 0 };
-    const updated = upsertPageCapture(previous, allowedCapture);
-    // Background updates should not reorder albums while someone is browsing All pages.
-    const previousOrder = new Map(previous.map((item, index) => [item.id, index]));
-    const next = reason === "page"
-      ? [...updated].sort((left, right) => (previousOrder.get(left.id) ?? Infinity) - (previousOrder.get(right.id) ?? Infinity))
-      : updated;
+    if (!allowedCapture) return { captures: previous, exclusions, savedCapture: undefined };
+    const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
-    return { captures: next, exclusions, savedCapture, wasEmpty: previous.length === 0 };
+    return { captures: next, exclusions, savedCapture };
   });
 
-  const handleCapture = async (reason: CaptureChangeReason | "manual" = "manual") => {
+  const handleCapture = async () => {
     if (!adapter.captureCurrentPage) return;
-    if (reason !== "manual" && managementOpenRef.current) return;
     const sequence = ++captureSequenceRef.current;
-    capturesInFlightRef.current += 1;
-    setBusy(reason !== "page" && reason !== "navigation");
-    if (reason === "manual") setNotice("");
+    setBusy(true);
+    setNotice("");
     try {
       const capture = await adapter.captureCurrentPage();
       if (sequence !== captureSequenceRef.current) return;
-      const saveReason = reason === "navigation" || (reason === "tab" && !autoSelectPendingRef.current) ? "page" : reason;
-      const pageChanged = activePageUrlRef.current !== capture.pageUrl;
-      const { savedCapture, wasEmpty } = await saveCapture(capture, saveReason);
+      const { savedCapture } = await saveCapture(capture, sequence);
       if (sequence !== captureSequenceRef.current) return;
-      activePageUrlRef.current = capture.pageUrl;
-      if (!savedCapture) {
-        autoSelectPendingRef.current = false;
-        return;
-      }
-      // A client-side route change should show its own album. More resources
-      // arriving on the same URL should leave the current view in place.
-      const shouldSelect = !savedOnly && (saveReason === "manual" || pageChanged || (saveReason === "tab" && autoSelectPendingRef.current));
-      if (shouldSelect) {
-        setSelectedCaptureId(savedCapture?.id ?? null);
+      if (!savedCapture) return;
+      if (!savedOnly) {
+        setSelectedCaptureId(savedCapture.id);
         setSelected(null);
         setSampleMode(false);
-        autoSelectPendingRef.current = false;
-        if (reason === "tab" || pageChanged) setNotice("");
-      } else if (wasEmpty && !savedOnly) {
-        setSelectedCaptureId((current) => current ?? savedCapture?.id ?? null);
       }
-      if (reason === "manual") {
-        setNotice(`${countLabel(savedCapture?.resources.length ?? capture.resources.length, "resource")} saved from ${capture.hostname}.`);
-      }
-      autoSelectPendingRef.current = false;
+      setNotice(`${countLabel(savedCapture.resources.length, "resource")} saved from ${capture.hostname}.`);
     } catch (error) {
-      if (reason !== "page" && reason !== "navigation" && sequence === captureSequenceRef.current) {
+      if (sequence === captureSequenceRef.current) {
         setNotice(error instanceof Error ? error.message : "The page could not be scanned. Try again.");
       }
     } finally {
-      capturesInFlightRef.current -= 1;
       if (sequence === captureSequenceRef.current) setBusy(false);
     }
   };
 
-  captureHandlerRef.current = handleCapture;
-
   useEffect(() => {
-    if (mode !== "extension" || !loaded || !adapter.subscribeToActiveTabChanges) return;
-
-    let timer: number | undefined;
-    let disposed = false;
-    const scheduleCapture = (reason: CaptureChangeReason) => {
-      if (managementOpenRef.current) return;
-      // Ignore a result from the tab we just switched away from.
-      if (reason === "tab") autoSelectPendingRef.current = true;
-      if (reason === "tab" || reason === "navigation") captureSequenceRef.current += 1;
-      if (timer !== undefined) window.clearTimeout(timer);
-      // URL updates can arrive before an SPA replaces the previous page's DOM.
-      // Its mutation notification usually scans sooner; this is a fallback for
-      // routes that change their URL without changing resource-bearing nodes.
-      const run = () => {
-        if (disposed) return;
-        // A mutation on the same page must not discard or overlap a scan already running.
-        if (reason === "page" && capturesInFlightRef.current > 0) { timer = window.setTimeout(run, 450); return; }
-        void captureHandlerRef.current(autoSelectPendingRef.current ? "tab" : reason);
-      };
-      timer = window.setTimeout(run, reason === "navigation" ? 5_000 : 450);
-    };
-
-    // Populate the panel for the active tab as soon as the saved library loads.
-    scheduleCapture("tab");
-    const unsubscribe = adapter.subscribeToActiveTabChanges(scheduleCapture);
     return () => {
-      disposed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
       captureSequenceRef.current += 1;
-      autoSelectPendingRef.current = false;
-      unsubscribe();
     };
-  }, [adapter, loaded, mode]);
+  }, [adapter]);
 
   const handleImportClick = () => fileInputRef.current?.click();
 
@@ -1237,6 +1179,9 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setResourceActionId("bulk");
     resourceActionInFlight.current = true;
     try {
+      if (mode === "extension" && !await requestWebsiteAccess(websiteOrigins(items.filter(item => item.kind !== "link" && item.kind !== "page").map(item => item.url)))) {
+        throw new Error("Website access was not granted. Choose Download as ZIP to try again.");
+      }
       const result = await createResourceZip(items.map((item) => ({
         kind: item.kind,
         url: item.url,
@@ -1281,6 +1226,9 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const isImage = item.kind === "image" || item.kind === "icon";
     setNotice(isImage ? "Checking the image before downloading…" : "Preparing your download…");
     try {
+      if (mode === "extension" && item.kind !== "link" && item.kind !== "page" && !await requestWebsiteAccess(websiteOrigins([item.url]))) {
+        throw new Error("Website access was not granted. Choose Download to try again.");
+      }
       if (mode === "extension" && item.kind !== "image" && item.kind !== "icon" && item.kind !== "link" && item.kind !== "page") {
         setNotice("");
         await downloads.start({ url: item.url, kind: item.kind, title: resourceDescription(item), filename: filenameForResource(item), sourcePage: item.capture.pageUrl });
@@ -1347,7 +1295,11 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setOpenActionMenuId(null);
     setNotice("Preparing the icon’s SVG…");
     try {
-      const icon = iconAsSvg(item.url);
+      const access = mode === "extension" ? requestWebsiteAccess(websiteOrigins([item.url])) : Promise.resolve(true);
+      const icon = access.then(granted => {
+        if (!granted) throw new Error("Website access was not granted. Choose Copy SVG to try again.");
+        return iconAsSvg(item.url);
+      });
       void icon.catch(() => undefined);
       // Supply the promise while the click still has clipboard user activation.
       if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
@@ -1392,13 +1344,11 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const selectCategory = (next: Category) => {
-    managementOpenRef.current = false;
     setManagementOpen(false);
     if (next === "saved") {
       setSavedOnly(true);
       setCategory("all");
       setSelectedCaptureId(null);
-      autoSelectPendingRef.current = false;
       setQuery("");
     } else setCategory(next);
     if (next === "all") {
@@ -1411,7 +1361,6 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const openLibrary = () => {
-    managementOpenRef.current = false;
     setManagementOpen(false);
     setSavedOnly(false);
     selectCategory("all");
@@ -1419,9 +1368,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const openManagement = () => {
-    managementOpenRef.current = true;
     captureSequenceRef.current += 1;
-    autoSelectPendingRef.current = false;
     setBusy(false);
     setManagementOpen(true);
     setManagementQuery("");
@@ -1434,7 +1381,6 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const closeManagement = () => {
-    managementOpenRef.current = false;
     setManagementOpen(false);
     window.requestAnimationFrame(() => libraryMenuTriggerRef.current?.focus());
   };
@@ -1448,9 +1394,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const selectSourcePage = (captureId: string | null) => {
-    managementOpenRef.current = false;
     setManagementOpen(false);
-    autoSelectPendingRef.current = false;
     setSelectedCaptureId(captureId);
     setCategory("all");
     setSelected(null);
@@ -1654,13 +1598,13 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <FileCog size={17} aria-hidden="true" /><span>Manage</span><span className="library-menu__count">{captures.length}</span>
                   </button>
                   {mode === "extension" && <button className="library-menu__item" type="button" role="menuitem" onClick={() => {
-                    const request = downloads.allowAccess();
+                    const request = adapter.requestCurrentPageAccess?.() ?? Promise.resolve(false);
                     setLibraryMenuOpen(false);
                     libraryMenuTriggerRef.current?.focus();
                     void request.then(granted => {
-                      setNotice(granted ? "Website access is enabled. You can scan pages and download available media." : "Website access was not granted. Open the menu to request it again.");
+                      setNotice(granted ? "Access to this site is enabled. Click Scan page to collect its resources." : "Website access was not granted. Click Scan page to try again.");
                     }).catch(error => setNotice(error.message));
-                  }}><ShieldCheck size={17} aria-hidden="true" /><span>Allow website access</span></button>}
+                  }}><ShieldCheck size={17} aria-hidden="true" /><span>Allow access to this site</span></button>}
                 </div>
               )}
             </div>
@@ -1818,7 +1762,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span>Scans active pages while open</span></span>
+              <span className="page-scope__label">Source page <span>Scans only when you click Scan page</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"

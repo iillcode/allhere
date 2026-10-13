@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type HTMLAttributes } from "react";
 import type { ResourceKind } from "@allhere/core";
 import { loadResourceFile } from "./resourceFiles";
+import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 type Item = { id: string; url: string; kind: ResourceKind | "page" };
 type Entry = { file?: File; pending?: Promise<File>; touched: number; error?: string };
@@ -61,6 +62,19 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
     if (entry?.file) { entry.touched = Date.now(); if (announce) notify(`${entry.file.name} is ready. Drag it into an upload field.`); return entry.file; }
     if (entry?.error && !announce) return;
     if (announce) notify("Preparing the file for dragging…");
+    if (announce && window.location.protocol === "chrome-extension:") {
+      try {
+        if (!await requestWebsiteAccess(websiteOrigins([item.url]))) {
+          notify("Website access was not granted. Choose Prepare for dragging to try again.");
+          return;
+        }
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Website access could not be requested. Choose Prepare for dragging again.");
+        return;
+      }
+      entry = cache.current.get(key);
+      if (entry?.file) { notify(`${entry.file.name} is ready. Drag it into an upload field.`); return entry.file; }
+    }
     if (!entry?.pending) {
       // Bound retained data and speculative requests; large libraries stay inexpensive.
       if (!announce && controllers.current.size >= 2) return;

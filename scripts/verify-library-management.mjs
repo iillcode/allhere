@@ -1,4 +1,4 @@
-// Exercise the built extension in isolated Brave storage, including live rescans.
+// Exercise the built extension in isolated Brave storage, including manual scans.
 // Run after building: node scripts/verify-library-management.mjs
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -8,6 +8,7 @@ import { createServer as portServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { localFixtureExtension } from "./extension-fixture.mjs";
 
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 async function until(check, message, timeout = 20_000) {
@@ -64,9 +65,10 @@ await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const base = `http://127.0.0.1:${server.address().port}`;
 const debugPort = await new Promise((done) => { const socket = portServer(); socket.listen(0, "127.0.0.1", () => { const port = socket.address().port; socket.close(() => done(port)); }); });
 const profile = await mkdtemp(join(tmpdir(), "allhere-management-"));
+const installedExtension = await localFixtureExtension(profile);
 const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run", "--no-default-browser-check",
-  `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "about:blank",
+  `--disable-extensions-except=${installedExtension}`, `--load-extension=${installedExtension}`, "about:blank",
 ], { windowsHide: true, stdio: "ignore" });
 let browserCdp, panel, source, web;
 const capturedAt = new Date().toISOString();
@@ -168,7 +170,8 @@ try {
   await until(() => source.evaluate("document.readyState === 'complete'"), "Live source did not load");
   await delay(1800);
   await source.evaluate("document.querySelector('#updates').innerHTML='<img src=\"/late-image.svg\" alt=\"Late image\">'");
-  await until(async () => (await read())['allhere.library.v1'].find((page) => page.id === capture.id)?.resources.some((resource) => resource.label === "Late image"), "Background scanning did not append a new item");
+  await delay(1800);
+  assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id)?.resources.some((resource) => resource.label === "Late image"), "Page updates must wait for Scan page");
   assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id).resources.some((resource) => resource.url === base + "/saved-image.svg"), "Background scanning restored a deleted item");
   assert.ok(await panel.evaluate("document.querySelector('.saved-scope-back') !== null"), "Live scans exited Saved items");
   await panel.send("Page.reload");
@@ -245,7 +248,7 @@ try {
       await writeFile(resolve(`.impeccable/review/manage-web-${width}.png`), Buffer.from(data, "base64"));
     }
   }
-  console.log("PASS Brave: saved filtering across all media tabs; page and item deletion; Undo; failed storage writes; live rescan suppression; persistence after reopening; explicit rescanning; responsive header and management at 320/390/720px.");
+  console.log("PASS Brave: saved filtering across all media tabs; page and item deletion; Undo; failed storage writes; no background scans; persistence after reopening; explicit rescanning; responsive header and management at 320/390/720px.");
 } finally {
   panel?.close(); source?.close(); web?.close();
   if (browserCdp) { try { await browserCdp.send("Browser.close"); } catch { /* Already closed. */ } browserCdp.close(); }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { requestWebsiteAccess } from "./websiteAccess";
 
 export type DownloadJob = {
   id: string;
@@ -16,7 +17,6 @@ export type DownloadJob = {
 };
 export type DownloadInput = { url: string; title: string; filename: string; kind: string; sourcePage?: string };
 type ChromeApi = {
-  permissions: { request: (permissions: { origins: string[] }) => Promise<boolean> };
   runtime: { sendMessage: (message: unknown) => Promise<{ ok: boolean; result?: unknown; error?: string }> };
   storage: { local: { get: (key: string) => Promise<Record<string, unknown>> }; onChanged: {
     addListener: (listener: (changes: Record<string, { newValue?: unknown }>, area: string) => void) => void;
@@ -76,11 +76,9 @@ export function useDownloads(enabled: boolean) {
   return {
     jobs,
     // Call directly from a click handler, before awaiting anything: Chrome requires a user gesture.
-    allowAccess: (origins = ["http://*/*", "https://*/*"]) => {
-      const chrome = api();
-      if (!chrome?.permissions) return Promise.reject(new Error("Reload the Allhere extension to enable website access."));
-      return chrome.permissions.request({ origins });
-    },
+    allowAccess: (origins?: string[]) => origins?.length
+      ? requestWebsiteAccess(origins)
+      : Promise.reject(new Error("Choose the resource again to request access to its website.")),
     retry: async (job: DownloadJob) => {
       if (!job.url) throw new Error("Choose this resource again to retry the download.");
       const result = await message("start", { input: { url: job.url, title: job.title, filename: job.filename, kind: job.kind || "other" } });

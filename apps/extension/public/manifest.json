@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Allhere — Web resource library",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Collect and review images, links, media, and file URLs from the pages you visit.",
   "minimum_chrome_version": "114",
   "icons": {
@@ -10,8 +10,8 @@
     "48": "icons/allhere-48.png",
     "128": "icons/allhere-128.png"
   },
-  "permissions": ["scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["tabs", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"
   },

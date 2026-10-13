@@ -8,13 +8,10 @@
   const dragListeners = [];
   let active, toast;
   let stopped = false;
-  let stopWatching = () => undefined;
   const contextLostMessage = "Allhere was updated. Refresh this page to use drag and drop again.";
   function stop() {
     if (stopped) return;
     stopped = true;
-    stopWatching();
-    document.removeEventListener("DOMContentLoaded", watchResources);
     for (const [type, listener] of dragListeners) window.removeEventListener(type, listener, true);
     active = undefined;
     toast?.remove();
@@ -134,45 +131,5 @@
     window.addEventListener(type, listener, true);
     dragListeners.push([type, listener]);
   }
-  window.addEventListener("pagehide", () => { active = undefined; toast?.remove(); stopWatching(); });
-  window.addEventListener("pageshow", event => { if (event.persisted && !stopped) watchResources(); });
-
-  // A capture taken while a client-rendered page is still settling is only a
-  // partial snapshot. Signal the side panel after resource-bearing DOM changes;
-  // its merge keeps previously found assets when transient nodes disappear.
-  function watchResources() {
-    if (stopped || !document.documentElement) return;
-    let quietTimer, deadlineTimer;
-    let pendingUrl = location.href;
-    const observer = new MutationObserver(records => {
-      if (records.some(record => record.type === "attributes" || [...record.addedNodes].some(node => node.nodeType === 1) ||
-        (record.type === "characterData" && record.target.parentElement?.matches('mat-icon, [class*="material-icons"], [class*="material-symbols"]')))) signal();
-    });
-    stopWatching = () => {
-      observer.disconnect(); clearTimeout(quietTimer); clearTimeout(deadlineTimer);
-      document.fonts?.removeEventListener("loadingdone", signal);
-    };
-    const signal = () => {
-      if (stopped || document.visibilityState === "hidden") return;
-      if (location.href !== pendingUrl) {
-        clearTimeout(quietTimer); clearTimeout(deadlineTimer);
-        quietTimer = deadlineTimer = undefined;
-        pendingUrl = location.href;
-      }
-      const send = () => {
-        clearTimeout(quietTimer); clearTimeout(deadlineTimer);
-        quietTimer = deadlineTimer = undefined;
-        if (location.href !== pendingUrl) return;
-        void sendMessage({ type: "allhere.page.changed" }).catch(() => undefined);
-      };
-      clearTimeout(quietTimer);
-      quietTimer = setTimeout(send, 1_200);
-      if (!deadlineTimer) deadlineTimer = setTimeout(send, 5_000);
-    };
-    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true,
-      attributeFilter: ["src", "srcset", "href", "poster", "style", "data", "width", "height", "class", "fonticon", "data-mat-icon-name", "data-mat-icon-type"] });
-    document.fonts?.addEventListener("loadingdone", signal);
-  }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watchResources, { once: true });
-  else watchResources();
+  window.addEventListener("pagehide", () => { active = undefined; toast?.remove(); });
 })();

@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { localFixtureExtension } from "./extension-fixture.mjs";
 
 const width = Number(process.env.ALLHERE_SCREENSHOT_WIDTH ?? 640);
 const height = Number(process.env.ALLHERE_SCREENSHOT_HEIGHT ?? 400);
@@ -14,7 +15,6 @@ if (![[1280, 800], [640, 400]].some(([expectedWidth, expectedHeight]) => width =
 }
 const destination = resolve(`docs/chrome-web-store-assets/allhere-screenshot-${view}${scrollY ? "-scrolled" : ""}-${width}x${height}.png`);
 const webUrl = process.env.ALLHERE_WEB_URL ?? "http://127.0.0.1:3002/";
-const extensionPath = resolve("apps/extension/out");
 const port = await new Promise((done) => {
   const server = createServer();
   server.listen(0, "127.0.0.1", () => {
@@ -23,6 +23,7 @@ const port = await new Promise((done) => {
   });
 });
 const profile = join(tmpdir(), `allhere-store-screenshot-${crypto.randomUUID()}`);
+const extensionPath = source === "installed" ? await localFixtureExtension(profile) : undefined;
 const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`,
   `--remote-debugging-port=${port}`,
@@ -73,8 +74,8 @@ class Cdp {
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
-  async evaluate(expression) {
-    const response = await this.send("Runtime.evaluate", { expression, returnByValue: true });
+  async evaluate(expression, userGesture = false) {
+    const response = await this.send("Runtime.evaluate", { expression, userGesture, awaitPromise: true, returnByValue: true });
     if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
     return response.result.value;
   }
@@ -114,7 +115,11 @@ try {
     const sourcePage = new Cdp(sourceTab.webSocketDebuggerUrl);
     await sourcePage.ready();
     await sourcePage.send("Page.bringToFront");
-    await until(() => page.evaluate(`document.body.innerText.includes('Your working library for the web') && Boolean(document.querySelector('[data-resource-tab=images]'))`), "The installed extension did not scan the source webpage.");
+    await until(() => sourcePage.evaluate("document.readyState === 'complete'"), "The source webpage did not finish loading.");
+    await until(() => page.evaluate("document.querySelector('.button--scan')?.disabled === false"), "The saved library did not finish loading.");
+    await until(() => page.evaluate(`chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab]) => tab?.url === ${JSON.stringify(webUrl)})`), "The source webpage did not become active.");
+    await page.evaluate("document.querySelector('.button--scan').click()", true);
+    await until(() => page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
     sourcePage.close();
     await page.send("Page.bringToFront");
   } else {

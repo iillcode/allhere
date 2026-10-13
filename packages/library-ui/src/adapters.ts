@@ -8,8 +8,7 @@ import {
   type ResourceKind,
 } from "@allhere/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
-
-export type CaptureChangeReason = "tab" | "page" | "navigation";
+import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
@@ -17,7 +16,7 @@ export type LibraryAdapter = {
   subscribe: (listener: (captures: PageCapture[]) => void) => () => void;
   loadExclusions?: () => Promise<CaptureExclusions>;
   subscribeExclusions?: (listener: (exclusions: CaptureExclusions) => void) => () => void;
-  subscribeToActiveTabChanges?: (listener: (reason: CaptureChangeReason) => void) => () => void;
+  requestCurrentPageAccess?: () => Promise<boolean>;
   captureCurrentPage?: () => Promise<PageCapture>;
 };
 
@@ -42,12 +41,6 @@ type RawPageScan = {
 type StorageChange = { newValue?: unknown };
 
 type ChromeLike = {
-  runtime?: {
-    onMessage?: {
-      addListener: (listener: (message: { type?: string }, sender: { tab?: { id?: number } }) => void) => void;
-      removeListener: (listener: (message: { type?: string }, sender: { tab?: { id?: number } }) => void) => void;
-    };
-  };
   storage?: {
     local?: {
       get: (key: string) => Promise<Record<string, unknown>>;
@@ -66,18 +59,6 @@ type ChromeLike = {
     query: (query: { active: boolean; lastFocusedWindow: boolean }) => Promise<
       Array<{ id?: number; url?: string }>
     >;
-    onActivated?: {
-      addListener: (listener: (activeInfo: { tabId: number }) => void) => void;
-      removeListener: (listener: (activeInfo: { tabId: number }) => void) => void;
-    };
-    onUpdated?: {
-      addListener: (
-        listener: (tabId: number, changeInfo: { status?: string; url?: string }) => void,
-      ) => void;
-      removeListener: (
-        listener: (tabId: number, changeInfo: { status?: string; url?: string }) => void,
-      ) => void;
-    };
   };
   scripting?: {
     executeScript: (options: {
@@ -155,6 +136,19 @@ export function createWebAdapter(): LibraryAdapter {
 }
 
 export function createExtensionAdapter(): LibraryAdapter {
+  const requestPageAccess = async () => {
+    const api = chromeApi();
+    if (!api?.tabs || !api.scripting) throw new Error("Capture is available from the installed Chrome side panel.");
+    const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+    if (typeof tab?.id !== "number" || !tab.url || !/^https?:\/\//i.test(tab.url)) {
+      throw new Error("This page cannot be scanned. Open a regular webpage and click Scan page.");
+    }
+    // The Scan page gesture authorizes a request for this site only. Reading
+    // the active URL identifies the permission; it does not capture the page.
+    const granted = await requestWebsiteAccess(websiteOrigins([tab.url]));
+    return { api, tab: { ...tab, id: tab.id, url: tab.url }, granted };
+  };
+
   const load = async () => {
     const api = chromeApi();
     if (api?.storage?.local) {
@@ -200,61 +194,28 @@ export function createExtensionAdapter(): LibraryAdapter {
       changes.addListener(handler);
       return () => changes.removeListener(handler);
     },
-    subscribeToActiveTabChanges: (listener) => {
-      const tabs = chromeApi()?.tabs;
-      const messages = chromeApi()?.runtime?.onMessage;
-      if (!tabs?.onActivated) return () => undefined;
-
-      let activeTabId: number | undefined;
-      void tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
-        // A tab activation can arrive before this query resolves. Preserve the
-        // event's newer ID so the completion listener watches the right tab.
-        if (activeTabId === undefined) activeTabId = tab?.id;
-      }).catch(() => undefined);
-
-      const handleActivated = (activeInfo: { tabId: number }) => {
-        activeTabId = activeInfo.tabId;
-        listener("tab");
-      };
-      const handleUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
-        if (tabId !== activeTabId) return;
-        if (changeInfo.status === "complete") listener("tab");
-        else if (changeInfo.url) listener("navigation");
-      };
-      const handlePageChanged = (message: { type?: string }, sender: { tab?: { id?: number } }) => {
-        if (message.type === "allhere.page.changed" && sender.tab?.id === activeTabId) listener("page");
-      };
-
-      tabs.onActivated.addListener(handleActivated);
-      tabs.onUpdated?.addListener(handleUpdated);
-      messages?.addListener(handlePageChanged);
-      return () => {
-        tabs.onActivated?.removeListener(handleActivated);
-        tabs.onUpdated?.removeListener(handleUpdated);
-        messages?.removeListener(handlePageChanged);
-      };
-    },
+    requestCurrentPageAccess: async () => (await requestPageAccess()).granted,
     captureCurrentPage: async () => {
-      const api = chromeApi();
-      if (!api?.tabs || !api.scripting) {
-        throw new Error("Capture is available from the installed Chrome side panel.");
-      }
-
-      const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
-      if (typeof tab?.id !== "number") {
-        throw new Error("No active webpage tab was found. Open a webpage and try again.");
+      const { api, tab, granted } = await requestPageAccess();
+      if (!granted) throw new Error("Access to this site was not granted. Click Scan page to try again.");
+      const [requestedTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
+      if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url) {
+        throw new Error("The active page changed. Click Scan page on the page you want to collect.");
       }
 
       let injected: Array<{ frameId?: number; result?: RawPageScan }>;
       try {
-        injected = await api.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: true },
-          func: collectPageResources,
-        });
+        try {
+          injected = await api.scripting!.executeScript({ target: { tabId: tab.id, allFrames: true }, func: collectPageResources });
+        } catch {
+          // Cross-origin frames may have separate, ungranted site access.
+          // Keep the requested page available without requesting those sites.
+          injected = await api.scripting!.executeScript({ target: { tabId: tab.id }, func: collectPageResources });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (/cannot access contents|permission|restricted|chrome:\/\//i.test(message)) {
-          throw new Error("Chrome does not allow scanning this page. Open a regular webpage and try again.");
+          throw new Error("Chrome does not allow scanning this page. Open a regular webpage and click Scan page.");
         }
         throw new Error(`Could not scan this page${message ? `: ${message}` : ". Try again."}`);
       }
@@ -266,15 +227,16 @@ export function createExtensionAdapter(): LibraryAdapter {
       // The page helper is needed only for pages the open panel scans. Avoid
       // installing an always-on content script across every browsing tab.
       try {
-        await api.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: true },
-          files: ["file-drop.js"],
-        });
+        try {
+          await api.scripting!.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["file-drop.js"] });
+        } catch {
+          await api.scripting!.executeScript({ target: { tabId: tab.id }, files: ["file-drop.js"] });
+        }
       } catch {
         // Keep the snapshot when a page or frame changes before the optional
-        // drag and resource-change helper can be installed.
+        // drag helper can be installed.
       }
-      const [currentTab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+      const [currentTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
       if (currentTab?.id !== tab.id || (currentTab.url && currentTab.url !== scan.pageUrl)) {
         throw new Error("The page changed while scanning. Scan the current page again.");
       }
