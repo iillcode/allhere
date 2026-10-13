@@ -82,7 +82,8 @@ type ChromeLike = {
   scripting?: {
     executeScript: (options: {
       target: { tabId: number; allFrames?: boolean };
-      func: () => Promise<RawPageScan>;
+      func?: () => Promise<RawPageScan>;
+      files?: string[];
     }) => Promise<Array<{ frameId?: number; result?: RawPageScan }>>;
   };
 };
@@ -261,6 +262,17 @@ export function createExtensionAdapter(): LibraryAdapter {
       const scan = injected.find((frame) => frame.frameId === 0)?.result ?? injected[0]?.result;
       if (!scan || !/^https?:\/\//i.test(scan.pageUrl)) {
         throw new Error("This page cannot be scanned. Open a regular webpage and try again.");
+      }
+      // The page helper is needed only for pages the open panel scans. Avoid
+      // installing an always-on content script across every browsing tab.
+      try {
+        await api.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          files: ["file-drop.js"],
+        });
+      } catch {
+        // Keep the snapshot when a page or frame changes before the optional
+        // drag and resource-change helper can be installed.
       }
       const [currentTab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
       if (currentTab?.id !== tab.id || (currentTab.url && currentTab.url !== scan.pageUrl)) {
@@ -590,32 +602,6 @@ async function collectPageResources(): Promise<RawPageScan> {
   const supportedSource = (media: HTMLMediaElement) =>
     Array.from(media.querySelectorAll<HTMLSourceElement>("source[src]"))
       .find((source) => !source.type || media.canPlayType(source.type) !== "")?.src;
-
-  // A hosted player may use blob/MSE internally; retain its page as a video entry.
-  const hostedVideos = [
-    { address: pageUrl, label: pageTitle.replace(/\s*-\s*YouTube$/, "") },
-    ...queryAll<HTMLIFrameElement>("iframe[src]").map(frame => ({ address: frame.src, label: frame.title || "YouTube video" })),
-    ...queryAll<HTMLAnchorElement>("a[href]").map(link => {
-      const container = link.closest("ytd-video-renderer, ytd-rich-grid-media, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, ytd-reel-item-renderer, yt-lockup-view-model");
-      const title = container?.querySelector<HTMLElement>('#video-title, h3, .yt-lockup-metadata-view-model__title');
-      return { address: link.href, label: title?.getAttribute("title") || title?.textContent?.trim() || link.getAttribute("title") || link.getAttribute("aria-label") || link.textContent?.trim() || "YouTube video" };
-    }),
-  ];
-  const hostedVideoLabels = new Map<string, string>();
-  hostedVideos.forEach(({ address, label }) => {
-    try {
-      const url = new URL(address);
-      const host = url.hostname.toLowerCase();
-      const id = host === "youtu.be" ? url.pathname.slice(1).split("/")[0]
-        : /^(?:www\.|m\.)?youtube(?:-nocookie)?\.com$/.test(host)
-          ? url.pathname === "/watch" ? url.searchParams.get("v") : url.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]+)/)?.[1] : undefined;
-      if (id && /^[\w-]{11}$/.test(id)) {
-        const previous = hostedVideoLabels.get(id);
-        if (!previous || (previous === "YouTube video" && label !== "YouTube video")) hostedVideoLabels.set(id, label || "YouTube video");
-      }
-    } catch { /* Ignore invalid embed addresses. */ }
-  });
-  hostedVideoLabels.forEach((label, id) => add("video", `https://www.youtube.com/watch?v=${id}`, label, { description: label, mimeType: "text/html" }));
 
   queryAll<HTMLVideoElement>("video").forEach((video) => {
     add("video", video.currentSrc || video.src || supportedSource(video), video.title || "Video", {

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 const questions = [
   { question: "What does Scan page collect?", answer: "Allhere gathers the resource addresses it can access on the current page: images, icons, fonts, links, video and audio, and files. Each resource stays associated with its source page. Some embedded or protected resources may not be accessible." },
-  { question: "Does Allhere scan pages automatically?", answer: "No. Open the Chrome side panel and choose Scan page when you want to collect resources from the page you’re viewing. You decide when to start a collection." },
+  { question: "Does Allhere scan pages automatically?", answer: "Yes, while its side panel is open. Opening the panel scans the active webpage, and switching tabs or page changes can refresh that collection. Scan page lets you rescan manually. Collections stay in your browser's local extension storage." },
   { question: "Where is my collection stored?", answer: "Your collection is stored locally in the browser or extension where you created it. The extension and web library have separate storage. Export a JSON archive to keep a backup or move a collection between them; they don’t sync automatically." },
   { question: "Does a link signal mean a destination is safe?", answer: "No. Allhere checks visible URL patterns on your device and explains clues that may deserve a closer look. These local heuristics are context, not a safety guarantee or an external reputation check." },
   { question: "How do I install the Chrome extension?", answer: "Allhere is currently a developer preview for desktop Chrome 114 or later. Download the ZIP, extract it, turn on Developer mode in Chrome’s extensions page, and choose Load unpacked to select the extracted folder.", setup: true },
@@ -53,7 +53,7 @@ export default function HomePage() {
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.container}>
             <h1 id="hero-title">Good finds.<br /><span>All in one place.</span></h1>
-            <p className={styles.heroDescription}>Your working library for the web. Collect images, links, fonts, and files from a webpage, right beside the tab you’re exploring.</p>
+            <p className={styles.heroDescription}>Your working library for the web. Open the side panel to collect images, links, fonts, and files from the active page. It refreshes as you change tabs or the page changes, and saves the collection locally.</p>
             <div className={styles.heroActions}><DownloadButton /><a className={styles.textLink} href="#extension-demo">See Allhere in action<Icon name="arrow" /></a></div>
             <p className={styles.installNote}>For desktop Chrome 114+ · Developer preview <span aria-hidden="true">·</span> <a href="/install">Manual setup guide</a></p>
           </div>
@@ -65,14 +65,14 @@ export default function HomePage() {
             <ProductDemo />
             <div className={styles.demoCaption}><p>Go ahead, explore. This is the real Allhere interface with sample resources.</p><span>Changes reset on refresh<Icon name="info" /></span></div>
           </div>
-          <ul className={styles.reassurance} aria-label="How Allhere works"><li><Icon name="scan" />Scan when you choose</li><li><Icon name="grid" />Organized by resource type</li><li><Icon name="shield" />Link checks stay on your device</li></ul>
+          <ul className={styles.reassurance} aria-label="How Allhere works"><li><Icon name="scan" />Scans while the panel is open</li><li><Icon name="grid" />Organized by resource type</li><li><Icon name="shield" />Link checks stay on your device</li></ul>
         </section>
 
         <section className={`${styles.section} ${styles.workflow}`} id="workflow" aria-labelledby="workflow-title">
           <div className={styles.container}>
             <div className={styles.sectionHeading}><h2 id="workflow-title">From a page to a collection.<br /><span>Without the busywork.</span></h2><p>A simple rhythm for all the things you want to come back to.</p></div>
             <ol className={styles.steps}>
-              <li><div className={styles.stepTop}><span>1</span><Icon name="scan" /></div><h3>Find something interesting.</h3><p>Open Allhere beside a webpage and choose <strong>Scan page</strong>. Collect its available resource URLs in one place.</p></li>
+              <li><div className={styles.stepTop}><span>1</span><Icon name="scan" /></div><h3>Find something interesting.</h3><p>Open Allhere beside a webpage to collect its available resource URLs. Choose <strong>Scan page</strong> whenever you want to refresh the collection yourself.</p></li>
               <li><div className={styles.stepTop}><span>2</span><Icon name="grid" /></div><h3>Let the collection take shape.</h3><p>Browse by type, search what you’ve found, and inspect the details. The original source stays close at hand.</p></li>
               <li><div className={styles.stepTop}><span>3</span><Icon name="bookmark" /></div><h3>Keep what matters.</h3><p>Save useful finds. Open, copy, or download a resource when it’s time to bring it into your next piece of work.</p></li>
             </ol>

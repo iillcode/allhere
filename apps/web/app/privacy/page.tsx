@@ -2,39 +2,56 @@ import type { Metadata } from "next";
 import LegalPage from "../LegalPage";
 
 export const metadata: Metadata = {
-  title: "Privacy — Allhere",
-  description: "How the Allhere preview handles captured resources and link checks.",
+  title: "Privacy Policy — Allhere",
+  description: "How the Allhere extension and web library handle page resources and local data.",
 };
 
 export default function PrivacyPage() {
   return (
     <LegalPage
-      title="Privacy overview"
-      description="A plain-language summary of how the current Allhere preview handles library data."
+      title="Privacy policy"
+      description="How Allhere collects, uses, stores, and shares information when you use its Chrome extension or web library."
       sections={[
         {
-          title: "Scans start with you",
+          title: "What Allhere does",
           paragraphs: [
-            "Allhere does not scan pages automatically. When you choose Scan page, the extension reads resource addresses it can access on the active webpage and adds them to your collection.",
+            "Allhere helps you collect and organize resources from webpages in a local library. When you open the extension side panel, it scans the active HTTP or HTTPS page. While the panel stays open, changing tabs, navigating, or changes to resources on the active page can trigger another scan. The Scan page button lets you scan again manually.",
+            "On pages scanned by the open side panel, a small helper watches for resource changes and supports file drag and drop. It may remain on that page until the page closes or navigates, but it does not save a page collection by itself while the panel is closed. Chrome does not allow Allhere to scan restricted browser pages.",
           ],
         },
         {
-          title: "Local library storage",
+          title: "Information Allhere uses",
           paragraphs: [
-            "The extension stores its collection in Chrome local storage. The web library stores its own collection in browser local storage. These collections are separate and are not automatically synced to a cloud account.",
-            "You can move a collection between the two surfaces by exporting and importing a JSON archive.",
+            "A scan can save the source page's URL, title, hostname, and favicon, together with resource URLs, names, descriptions, types, dimensions, and other details needed to show and organize images, icons, fonts, links, media, and files. Some inline SVGs, generated icon previews, and temporary page images are stored as image data so they remain available after the page closes. URLs or page content can contain personal information; consider this before scanning a page or exporting a collection.",
+            "Allhere also stores your saved-item choices, deleted-page exclusions, and recent download status and filenames. It uses page and resource URLs to show your library and to calculate local link signals. It does not intentionally read passwords, form-field values, or cookies.",
           ],
         },
         {
-          title: "Link signals",
+          title: "Where information is stored",
           paragraphs: [
-            "Link checks run locally using visible URL patterns. The preview does not send URLs to an external reputation service.",
+            "The extension stores its collection and recent download status in Chrome's local extension storage on your device. The separate web library stores its collection in your browser's local storage. Allhere does not automatically sync either collection to an account or upload it to an Allhere server. Collection entries remain until you delete them or clear the relevant browser or extension data; older download status may be removed automatically.",
+            "You can export a collection as a JSON file and import one you choose. Exported files may include page addresses, resource metadata, and embedded image data. You control where you save or share that file.",
           ],
         },
         {
-          title: "Opening resources",
+          title: "Network requests and sharing",
           paragraphs: [
-            "When you choose to open, preview, or download a captured resource, your browser may connect to that resource's original host. That host and your browser apply their own data practices.",
+            "During a scan, Allhere may request an SVG sprite or page-generated image needed for a usable preview. Loading a preview, checking a resource, or downloading a file may also contact the resource's original website or image host. That host receives the normal network information associated with the request. When you drag a resource into a website's upload field, that website receives the file you choose to drop. Copying a URL places it on your device's clipboard.",
+            "Allhere does not sell your library data, send it to an advertising or analytics service, or allow its developer to read your local collection. Link signals are calculated locally; Allhere does not send URLs to an external reputation service.",
+            "Visiting the Allhere website sends ordinary connection information, such as your IP address and browser details, to its hosting provider to deliver the site. The website does not receive your local library collection unless you separately choose to share it.",
+          ],
+        },
+        {
+          title: "Website access and limited use",
+          paragraphs: [
+            "The extension requests access to HTTP and HTTPS webpages so it can scan whichever regular page you use with Allhere, notice changes while the side panel is open, and support dragging a selected resource to a page. It also uses browser storage, downloads, and the side panel to provide the library and file actions you choose.",
+            "Allhere's use of information received from Chrome APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. That information is used only to provide or improve the features described here and is not used for personalized advertising or sold to third parties.",
+          ],
+        },
+        {
+          title: "Contact",
+          paragraphs: [
+            "For questions about this policy or your Allhere data, email business.adilsha@gmail.com.",
           ],
         },
       ]}

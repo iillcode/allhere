@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
+    "package:extension": "node scripts/package-extension.mjs",
     "typecheck": "turbo typecheck",
     "clean": "turbo clean"
   },

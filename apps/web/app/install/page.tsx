@@ -77,11 +77,13 @@ export default function InstallPage() {
           >
             <h2 id="install-next-title">Start with the page you are on.</h2>
             <p>
-              Open Allhere from the Chrome toolbar, choose{" "}
-              <strong>Scan page</strong>, then browse the resources beside your
-              work. The extension library and the web library keep separate
-              local collections; use a JSON archive to transfer items between
-              them.
+              Open Allhere from the Chrome toolbar to scan the active page,
+              then browse its resources beside your work. While the panel is
+              open, changing tabs or the page can refresh the collection.
+              Choose <strong>Scan page</strong> for a manual rescan. The extension
+              library and the web library keep separate local collections; use
+              a JSON archive to transfer items between them. See our{" "}
+              <a href="/privacy">privacy policy</a> for details.
             </p>
             <a href="/#extension-demo">
               See the side panel in action <ArrowIcon />

@@ -188,7 +188,9 @@ try {
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "A background scan restored a deleted page");
   await panel.send("Page.reload"); await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Remaining page did not render"); await delay(1000);
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "Panel reopen restored a deleted page");
+  await panel.evaluate("(() => { const button = document.querySelector('.button--scan'); window.__explicitScanState = { sawBusy: button.disabled, finished: false }; const observer = new MutationObserver(() => { if (button.disabled) window.__explicitScanState.sawBusy = true; else if (window.__explicitScanState.sawBusy) { window.__explicitScanState.finished = true; observer.disconnect(); } }); observer.observe(button, { attributes: true, attributeFilter: ['disabled'] }); })()");
   await click(".button--scan");
+  await until(() => panel.evaluate("window.__explicitScanState?.finished === true"), "Explicit rescan did not finish successfully");
   await until(async () => (await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a" && page.resources.some((resource) => resource.url === base + "/saved-image.svg")), "An explicit rescan did not restore excluded resources");
   assert.deepEqual((await read())['allhere.capture-exclusions.v1'], { pages: [], resources: {} });
   assert.equal(panel.errors.length, 0, "The extension reported an uncaught runtime exception");

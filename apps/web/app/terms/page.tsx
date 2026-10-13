@@ -21,7 +21,7 @@ export default function TermsPage() {
         {
           title: "Using Allhere",
           paragraphs: [
-            "Scans begin when you choose Scan page. Use Allhere only with webpages and resources you are authorized to access. The extension can collect only the resources available to it under Chrome's permissions.",
+            "Opening the extension side panel scans the active webpage. While it remains open, changes to the active page or tab can trigger another scan; Scan page starts a manual rescan. Use Allhere only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
           ],
         },
         {

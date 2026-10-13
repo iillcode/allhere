@@ -10,17 +10,11 @@
     "48": "icons/allhere-48.png",
     "128": "icons/allhere-128.png"
   },
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms", "declarativeNetRequestWithHostAccess"],
+  "permissions": ["scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"
   },
-  "content_scripts": [{
-    "matches": ["http://*/*", "https://*/*"],
-    "js": ["file-drop.js"],
-    "run_at": "document_start",
-    "all_frames": true
-  }],
   "action": {
     "default_title": "Open Allhere",
     "default_icon": {

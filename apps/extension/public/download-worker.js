@@ -98,7 +98,7 @@
   const start = async (input, fromPanel = false) => {
     if (!input || typeof input.url !== "string") throw Error("Choose a file address to download.");
     const url = safeUrl(input.url);
-    if (youtubePage(url)) throw Error("YouTube downloads are not supported. You can preview the video or copy its URL.");
+    if (youtubePage(url)) throw Error("YouTube downloads are not supported. Copy the URL to open the video on YouTube.");
     const filename = String(input.filename || "allhere-download").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").slice(0, 180);
     const job = { id: crypto.randomUUID(), title: String(input.title || filename).slice(0, 300), url,
       filename, state: fromPanel ? "queued" : "preparing", received: 0, total: 0, createdAt: Date.now(), kind: input.kind };

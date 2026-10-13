@@ -19,7 +19,6 @@ const dragOnly = process.argv[2] === "--drag-check";
 const scanOnly = process.argv[2] === "--scan-check";
 const modalOnly = process.argv[2] === "--modal-check";
 const downloadOnly = process.argv[2] === "--download-check";
-const youtubeOnly = process.argv[2] === "--youtube-scan-check";
 const formatOnly = process.argv[2] === "--format-check";
 async function until(check, message, timeout = 20_000) {
   const deadline = Date.now() + timeout;
@@ -138,7 +137,7 @@ try {
   const ico = Buffer.concat([icoHeader, png]);
   const inlineSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#0b57d0" d="M2 2h20v20H2z"/></svg>';
   const remoteSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" onload="alert(1)"><style>.glyph{fill:#ff0000}</style><path class="glyph" d="M2 2h20v20H2z"/><script>alert(1)</script><foreignObject width="24" height="24"><div xmlns="http://www.w3.org/1999/xhtml">unsafe</div></foreignObject></svg>';
-  const entries = process.argv[2] && !menuOnly && !albumOnly && !dragOnly && !scanOnly && !modalOnly && !downloadOnly && !youtubeOnly && !formatOnly ? [{ label: "Remote image", url: process.argv[2] }] : [
+  const entries = process.argv[2] && !menuOnly && !albumOnly && !dragOnly && !scanOnly && !modalOnly && !downloadOnly && !formatOnly ? [{ label: "Remote image", url: process.argv[2] }] : [
     { label: "Extensionless", path: "/extensionless", bytes: png, type: "application/octet-stream", extension: "png" },
     { label: "Negotiated", path: "/negotiated.jpg", bytes: webp, type: "image/jpeg", extension: "webp" },
     { label: "Original JPEG", path: "/ordinary.jpg", bytes: jpeg, type: "image/jpeg", extension: "jpg" },
@@ -232,6 +231,8 @@ try {
     fixtures.set('/scene.blend',{type:'application/octet-stream',bytes:arbitrary});
     fixtures.set('/download',{type:'application/octet-stream',bytes:arbitrary,headers:{'Content-Disposition':"attachment; filename*=UTF-8''scene%20one.blend"}});
     fixtures.set('/sound.flac',{type:'audio/flac',bytes:Buffer.concat([Buffer.from('fLaC'),arbitrary])});
+    fixtures.set('/direct-video.mp4',{type:'video/mp4',bytes:Buffer.from([0,0,0,16,102,116,121,112,105,115,111,109,0,0,0,0])});
+    fixtures.set('/media-links',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Media links fixture</title><a href="https://www.youtube.com/watch?v=allhere0001">YouTube watch link</a><a href="https://www.youtube.com/shorts/allhere0002">YouTube Shorts link</a><a href="/direct-video.mp4">Direct MP4</a>')});
     capture.resources.push({...capture.resources[0],id:'download-audio',kind:'audio',label:'Downloadable audio',url:base+'/long.wav'});
     capture.resources.push({...capture.resources[0],id:'download-flac',kind:'audio',label:'FLAC audio',url:base+'/sound.flac'});
     capture.resources.push({...capture.resources[0],id:'download-arbitrary',kind:'other',label:'Scene.blend',url:base+'/scene.blend'});
@@ -309,7 +310,7 @@ try {
     }
     await page.send("Emulation.setDeviceMetricsOverride", { width:390, height:800, deviceScaleFactor:1, mobile:false });
   }
-  if (!albumOnly && !modalOnly && !downloadOnly && !youtubeOnly) {
+  if (!albumOnly && !modalOnly && !downloadOnly) {
     await selectCategory("Images");
     await until(() => page.evaluate(`document.querySelectorAll('.resource-card').length === ${capture.resources.filter(resource => resource.kind === "image").length}`), "Images did not appear in the library");
   }
@@ -354,57 +355,7 @@ try {
     await delay(100);
     await until(() => page.evaluate("!document.querySelector('.resource-actions__trigger .spin')"), "Image action did not finish");
   }
-  if (youtubeOnly) {
-    const url=process.argv[3]||'https://www.youtube.com/watch?v=BaW_jenozKc';
-    const {targetId:liveId}=await browserCdp.send('Target.createTarget',{url:'about:blank'});
-    const liveInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===liveId),'Live YouTube tab did not open');
-    const live=new Cdp(liveInfo.webSocketDebuggerUrl);await live.ready();
-    try {
-      const mediaRequests=[];
-      live.onEvent=event=>{if(event.method==='Network.requestWillBeSent'&&event.params.request.url.includes('.googlevideo.com/')){const request=event.params.request;const address=new URL(request.url);mediaRequests.push({method:request.method,path:address.pathname,itag:address.searchParams.get('itag'),mime:address.searchParams.get('mime')});}};
-      await live.send('Network.enable');
-      await live.send('Page.navigate',{url});
-      await live.send('Page.bringToFront');
-      const player=await until(()=>live.evaluate("(()=>{const p=document.getElementById('movie_player');p?.mute?.();p?.playVideo?.();const v=document.querySelector('video');if(v){v.muted=true;void v.play().catch(()=>{});}const r=p?.getPlayerResponse?.()||window.ytInitialPlayerResponse;return r?.playabilityStatus?{id:r.videoDetails?.videoId,status:r.playabilityStatus?.status,reason:r.playabilityStatus?.reason,formats:[...(r.streamingData?.formats||[]),...(r.streamingData?.adaptiveFormats||[])].length}:null;})()",true),'YouTube player was unavailable in this browser',60000);
-      console.log('Live YouTube player:',player);
-      console.log('Player transport:',await live.evaluate("(()=>{const p=document.getElementById('movie_player');const r=p?.getPlayerResponse?.()||window.ytInitialPlayerResponse;return {streamFields:Object.keys(r?.streamingData||{}),initialStreamFields:Object.keys(window.ytInitialPlayerResponse?.streamingData||{})};})()"));
-      await live.evaluate('window.scrollTo(0,600)');
-      await delay(3000);
-      const foundIds=await live.evaluate(`(()=>{const ids=new Set([...document.querySelectorAll('a[href]')].map(link=>{try{const u=new URL(link.href);return /(^|\\.)youtube.com$/.test(u.hostname)?u.searchParams.get('v')||u.pathname.match(/^\\/shorts\\/([\\w-]{11})/)?.[1]:undefined;}catch{}}).filter(id=>id&&/^[\\w-]{11}$/.test(id)));ids.add('${player.id}');return [...ids];})()`);
-      await page.evaluate("document.querySelector('[aria-label=\"Scan this page\"]').click()",true);
-      const capture=await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']?.find(capture=>capture.pageUrl===${JSON.stringify(url)}&&${JSON.stringify(foundIds)}.every(id=>capture.resources.some(resource=>resource.kind==='video'&&resource.url.endsWith(id))))) `),'The live scan missed a discovered video',60000);
-      const videos=capture.resources.filter(resource=>resource.kind==='video');
-      assert.equal(new Set(videos.map(resource=>resource.url)).size,videos.length,'Live scan contains duplicate video URLs');
-      await page.send('Page.bringToFront');await selectSource(capture.pageTitle);await selectCategory('Video & audio');
-      await until(()=>page.evaluate("document.querySelectorAll('.resource-card').length>0&&document.querySelectorAll('.resource-art img').length>0&&[...document.querySelectorAll('.resource-art img')].every(image=>image.naturalWidth>0)"),'Real video thumbnails did not finish rendering');
-      // This test hosts the side-panel UI in a tab for CDP. Bringing that tab to
-      // the front emits an expected restricted-page notice; dismiss it for captures.
-      await delay(800);await page.evaluate("document.querySelector('[aria-label=\"Dismiss message\"]')?.click()",true);
-      await mkdir(resolve('.impeccable/review'),{recursive:true});
-      const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-youtube-live-gallery-390.png'),Buffer.from(shot.data,'base64'));
-      console.log(`PASS live YouTube scan: ${videos.length} unique videos with actual thumbnails, no manual URL form.`);
-      const title=videos.find(resource=>resource.url.endsWith(player.id))?.label;
-      await page.evaluate(`[...document.querySelectorAll('.resource-card')].find(card=>card.getAttribute('aria-label')===${JSON.stringify(title)}).click()`,true);
-      const embed=await until(async()=> (await browserCdp.send('Target.getTargets')).targetInfos.find(target=>target.type==='iframe'&&target.url.includes('youtube-nocookie.com/embed/'+player.id)),'YouTube modal player did not open');
-      const {sessionId:embedSession}=await browserCdp.send('Target.attachToTarget',{targetId:embed.targetId,flatten:true});
-      const embedded=await until(()=>browserCdp.evaluate("(()=>{const p=document.getElementById('movie_player');p?.mute?.();p?.playVideo?.();const v=document.querySelector('video');if(v){v.muted=true;void v.play().catch(()=>{});}const r=p?.getPlayerResponse?.()||window.ytInitialPlayerResponse;return v?.currentTime>0?{played:true,status:r?.playabilityStatus?.status,formats:[...(r?.streamingData?.formats||[]),...(r?.streamingData?.adaptiveFormats||[])].map(format=>({itag:format.itag,url:!!format.url,cipher:!!format.signatureCipher}))}:null;})()",true,embedSession),'The YouTube modal could not play',30000);
-      console.log('Live modal playback:',embedded);
-      console.log('Embedded transport:',await browserCdp.evaluate("(()=>{const v=document.querySelector('video');return {source:v?.currentSrc?.split(':')[0],requests:performance.getEntriesByType('resource').filter(e=>e.name.includes('.googlevideo.com/')).map(e=>{const u=new URL(e.name);return {path:u.pathname,itag:u.searchParams.get('itag')};})};})()",false,embedSession));
-      await browserCdp.evaluate("document.getElementById('movie_player')?.seekTo?.(30,true)",true,embedSession);
-      await until(()=>browserCdp.evaluate("(()=>{const v=document.querySelector('video');return v?.currentTime>=30&&v.readyState>=2;})()",false,embedSession),'YouTube playback did not render a decoded frame');
-      const modalShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-youtube-live-modal-390.png'),Buffer.from(modalShot.data,'base64'));
-      await page.evaluate("document.querySelector('[aria-label=\"Close preview\"]').click()",true);
-      await page.evaluate(`(()=>{const card=[...document.querySelectorAll('.resource-card')].find(card=>card.getAttribute('aria-label')===${JSON.stringify(title)});card.closest('.resource-card-frame').querySelector('.resource-actions__trigger').click();})()`,true);
-      assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-actions__item')].some(button=>button.textContent.includes('Download'))"),false,'YouTube menu still offers downloads');
-      console.log('PASS live YouTube scanning and playback retained; YouTube download actions removed.');
-    } catch(error) {
-      console.error(await live.evaluate(`(()=>{const p=document.getElementById('movie_player');return {title:document.title,url:location.href,playerState:p?.getPlayerState?.(),message:document.body?.innerText.slice(0,450)};})()`));
-      console.error('Scan diagnostic:',await page.evaluate("Promise.all([chrome.tabs.query({active:true}),chrome.storage.local.get('allhere.library.v1')]).then(([tabs,data])=>({tabs:tabs.map(tab=>({url:tab.url,title:tab.title})),pages:data['allhere.library.v1']?.map(page=>({url:page.pageUrl,videos:page.resources.filter(resource=>resource.kind==='video').map(resource=>resource.url)})),notice:document.querySelector('.notice')?.textContent}))"));
-      console.error('Observed player requests:',JSON.stringify(await page.evaluate("chrome.storage.session.get(null).then(data=>Object.fromEntries(Object.entries(data).filter(([key])=>key.startsWith('allhere.media.')).map(([key,value])=>[key,{videoId:value.videoId,streams:value.streams.map(stream=>({itag:stream.itag,host:new URL(stream.url).hostname,n:new URL(stream.url).searchParams.has('n'),id:!!new URL(stream.url).searchParams.get('id'),mime:new URL(stream.url).searchParams.get('mime')}))}])))"),null,2));
-      throw error;
-    }
-    finally {live.close();await browserCdp.send('Target.closeTarget',{targetId:liveId});}
-  } else if (formatOnly) {
+  if (formatOnly) {
     await mkdir(resolve('.impeccable/review'),{recursive:true});
     const jobs=()=>page.evaluate("chrome.storage.local.get('allhere.downloads.v1').then(data=>data['allhere.downloads.v1']||[])");
     const decode=async(bytes)=>page.evaluate(`(async()=>{const image=new Image();image.src='data:image/'+${JSON.stringify(bytes[0]===0xff?'jpeg':bytes[0]===0x89?'png':'webp')}+';base64,'+${JSON.stringify(bytes.toString('base64'))};await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);return {width:canvas.width,height:canvas.height,pixel:Array.from(ctx.getImageData(0,0,1,1).data)};})()`);
@@ -608,31 +559,25 @@ try {
     await page.evaluate("chrome.permissions.request=window.__requestAccess;delete window.__requestAccess;delete window.__denyAccess;delete window.__requested");
     await permissionWorker.evaluate("chrome.permissions.contains=globalThis.__allhereContains;delete globalThis.__allhereContains;delete globalThis.__allhereMissing");permissionWorker.close();
     console.log('PASS native website access request and simulated missing-host/deny/grant/retry states, with exact downloaded bytes.');
-    // Keep scanning/thumbnails coverage after removing YouTube downloading.
-    const mockId='allhere0001';
-    const {targetId:mockTarget}=await browserCdp.send('Target.createTarget',{url:'about:blank'});
-    const mockInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===mockTarget),'Mock player tab did not open');
-    const mock=new Cdp(mockInfo.webSocketDebuggerUrl);await mock.ready();
-    const playerResponse={videoDetails:{videoId:mockId},playabilityStatus:{status:'OK'}};
-    mock.onEvent=event=>{if(event.method==='Fetch.requestPaused')void mock.send('Fetch.fulfillRequest',{requestId:event.params.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'text/html'}],body:Buffer.from(`<!doctype html><title>YouTube scan fixture</title><a href="/watch?v=${mockId}">Current video</a><a href="/watch?v=allhere0002&list=playlist">Recommended video</a><a href="/watch?v=allhere0002&t=20">Recommended video duplicate</a><a href="/shorts/allhere0003">Short video</a><script>window.ytInitialPlayerResponse=${JSON.stringify(playerResponse)};</script>`).toString('base64')});};
-    await mock.send('Fetch.enable',{patterns:[{urlPattern:'https://www.youtube.com/*'}]});await mock.send('Page.navigate',{url:`https://www.youtube.com/watch?v=${mockId}`});
-    await until(()=>mock.evaluate('Boolean(window.ytInitialPlayerResponse)'),'Fixture player did not load');
-    await mock.send('Page.bringToFront');
-    const scanned=await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']?.find(capture=>capture.pageUrl==='https://www.youtube.com/watch?v=${mockId}'))`),'YouTube page was not scanned');
-    assert.equal(scanned.resources.filter(resource=>resource.kind==='video').length,3,'Current/recommended/Shorts videos should be captured once each');
-    assert.equal(scanned.resources.find(resource=>resource.url.endsWith('allhere0002')).label,'Recommended video');
-    await page.send('Fetch.enable',{patterns:[{urlPattern:'https://i.ytimg.com/*'}]});
-    page.onEvent=event=>{if(event.method==='Fetch.requestPaused')void page.send('Fetch.fulfillRequest',{requestId:event.params.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'image/png'}],body:png.toString('base64')});};
-    await page.send('Page.bringToFront');await selectSource('YouTube scan fixture');await selectCategory('Video & audio');
-    await until(()=>page.evaluate("document.querySelectorAll('.resource-card').length===3&&[...document.querySelectorAll('.resource-art img')].every(image=>image.naturalWidth>0)"),'Scanned YouTube video cards did not render');
-    assert.equal(await page.evaluate("Boolean(document.querySelector('#media-download-url'))"),false,'The scan workflow should not contain a manual URL form');
-    const galleryShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-youtube-gallery-390.png'),Buffer.from(galleryShot.data,'base64'));
-    await page.evaluate("document.querySelector('.resource-actions__trigger').click()",true);
-    assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-actions__item')].some(button=>button.textContent.includes('Download'))"),false,'YouTube download actions should be absent');
-    const menuShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-youtube-menu-390.png'),Buffer.from(menuShot.data,'base64'));
-    await page.evaluate("document.querySelector('.resource-actions__trigger[aria-expanded=true]').click()",true);
-    mock.close();await browserCdp.send('Target.closeTarget',{targetId:mockTarget});
-    console.log('PASS YouTube page scanning/deduplication/thumbnails retained, download menu removed.');
+    const {targetId:linksTarget}=await browserCdp.send('Target.createTarget',{url:base+'/media-links'});
+    const linksInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===linksTarget),'Media links tab did not open');
+    const links=new Cdp(linksInfo.webSocketDebuggerUrl);await links.ready();
+    await links.send('Page.bringToFront');
+    const scanned=await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']?.find(capture=>capture.pageUrl===${JSON.stringify(base+'/media-links')}))`),'Media links page was not scanned');
+    const videos=scanned.resources.filter(resource=>resource.kind==='video');
+    assert.deepEqual(videos.map(resource=>resource.url),[base+'/direct-video.mp4'],'Only the direct video file should be captured as video');
+    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/watch?v=allhere0001'),'YouTube watch URL should remain an ordinary link');
+    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/shorts/allhere0002'),'YouTube Shorts URL should remain an ordinary link');
+    await page.send('Page.bringToFront');await selectSource('Media links fixture');await selectCategory('Video & audio');
+    await until(()=>page.evaluate("document.querySelectorAll('.resource-card').length===1"),'Direct video file did not appear in the media library');
+    await selectCategory('Links');
+    await until(()=>page.evaluate("[...document.querySelectorAll('.resource-table--links tbody tr')].some(row=>row.textContent.includes('YouTube watch link'))"),'YouTube link did not appear in Links');
+    await page.evaluate("[...document.querySelectorAll('.resource-table--links tbody tr')].find(row=>row.textContent.includes('YouTube watch link')).querySelector('.resource-actions__trigger').click()",true);
+    await until(()=>page.evaluate("Boolean(document.querySelector('.resource-actions__menu'))"),'YouTube link actions did not open');
+    assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-actions__item')].some(button=>button.textContent.trim()==='Copy URL')"),true,'YouTube link should offer Copy URL');
+    assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-actions__item')].some(button=>button.textContent.trim()==='Download')"),false,'YouTube link should not offer video downloading');
+    links.close();await browserCdp.send('Target.closeTarget',{targetId:linksTarget});
+    console.log('PASS direct video files appear in Video & audio; YouTube watch and Shorts URLs remain links without download actions.');
   } else if (modalOnly) {
     await mkdir(resolve('.impeccable/review'), {recursive:true});
     const targetCount=(await browserCdp.send('Target.getTargets')).targetInfos.length;
@@ -812,7 +757,7 @@ try {
       await selectCategory('Images');await page.evaluate("document.querySelector('.sort-button').click()",true);
       const listPayload=await dragPayload(pngEntry,'.table-name');assert.equal(listPayload.file.type,'image/png');
       await selectCategory('All resources');
-      assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-album__preview')].every(el=>el.draggable)"),true);
+      assert.equal(await page.evaluate("[...document.querySelectorAll('.resource-album__tile')].every(el=>el.draggable)"),true);
       // Exercise a real browser dragstart (not just constructed DOM events).
       await selectCategory('Images');
       await page.evaluate("document.querySelector('.sort-button').click()",true);

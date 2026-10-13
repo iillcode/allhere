@@ -527,8 +527,7 @@ function ResourceArt({ item, compact = false, preview = false }: { item: Display
 
   return (
     <div className={`resource-art resource-art--${item.kind}${compact ? " resource-art--compact" : ""}${preview ? " resource-art--preview" : ""}${item.kind === "icon" && darkIconSource === sourceKey ? " resource-art--icon-light" : ""}`}>
-      {hostedId && preview && <iframe className="resource-art__embed" src={`https://www.youtube-nocookie.com/embed/${hostedId}`} title={`Preview of ${item.title}`} allow="fullscreen; picture-in-picture" allowFullScreen onLoad={() => setLoadedSource(previewSource || "")} />}
-      {isImagePreview && previewSource && !(hostedId && preview) && (
+      {isImagePreview && previewSource && (
         <img
           ref={item.kind === "icon" ? iconImageRef : undefined}
           className={`resource-art__image${loadedSource === previewSource ? " resource-art__image--loaded" : ""}`}
@@ -1819,7 +1818,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page</span>
+              <span className="page-scope__label">Source page <span>Scans active pages while open</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"
