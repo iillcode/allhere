@@ -12,7 +12,7 @@ Next.js with Turbopack in a Turborepo monorepo (requested).
 
 ## Users
 
-Open decision: the primary audience has not been specified.
+Individual researchers and creators who collect useful web resources while they work.
 
 ## Product Purpose
 
@@ -32,15 +32,15 @@ The product includes a Chrome side panel for working beside the current webpage 
 - Show resource details and clear security signals, especially for links.
 - Use local heuristics for security flags; do not imply that a heuristic proves a destination is safe.
 - MVP storage is local to each surface. JSON archive import/export is the transfer path between the extension and web library; no cloud sync is specified.
-- Audience, remote security service, and cross-device sync are undecided. No external reputation service or sync provider is specified.
+- Remote security service and cross-device sync are undecided. No external reputation service or sync provider is specified.
 
 ## Brand Commitments
 
-Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product's own name and assets are not specified.
+Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Allhere and uses its existing extension mark.
 
 ## Evidence on Hand
 
-No customer content, reputation results, or product assets were provided. Any example library content must be labeled as sample data.
+No customer content or reputation results were provided. Any example library content must be labeled as sample data; the landing page includes a local illustrative image asset for its sample resource.
 
 ## Product Principles
 

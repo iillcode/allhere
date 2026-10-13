@@ -32,6 +32,44 @@ The extension uses a separate static React bundle because Manifest V3 blocks inl
 
 The extension uses `activeTab`, `scripting`, `sidePanel`, and `storage`, with HTTP/HTTPS host access for scanning, previews, downloading, and file transfers. Its drop handler runs on regular webpages and their frames. Security checks remain local; URLs are not sent to a reputation provider.
 
+## Manage your library
+
+Open the menu at the right of **Scan page** and choose **Manage**. Search captured pages, select pages to delete, or open a page to select and delete individual items. **Undo** restores the most recent deletion while the library remains open. Background scanning pauses while Manage is open, and deleted pages and items stay excluded from automatic rescans after reopening the sidebar. An explicit **Scan page** action restores resources from the current page; importing a page also restores it.
+
+Choose **Saved items** from the same menu to browse bookmarks across captured pages. Images, Icons, Fonts, Video & audio, Links, Files, and **All saved** all stay filtered to bookmarks. Source-page filtering, selection, and bulk actions use that same saved scope. Choose **All resources** or **Back to library** to return to the full collection.
+
+Browser verification: build the extension, then run `node scripts/verify-library-management.mjs`. It uses an isolated Brave profile to check saved filtering, deletion and Undo, failed writes, automatic rescan suppression, persistence, and responsive management controls. Set `ALLHERE_WEB_URL` to a running Next.js library to include the shared web interface.
+
+## Download video and audio
+
+Scan a page, open **Video & audio**, and use a card's dots menu to download. YouTube scans collect the current video, watch links, Shorts, and embedded videos found in the page. Different playlist/time URLs for the same video become one video card. More cards appear as the page loads more content. Cards have thumbnails and retain the existing grid, list, and modal preview flow.
+
+YouTube video cards support thumbnails, embedded preview, copying the URL, and saving to the library. YouTube video/audio downloading is not offered.
+
+Direct media downloads use the browser download manager. The bottom download bar shows bytes received, a percentage when known, Cancel, completed files, and failures. Expand it to see earlier downloads; completed files can be shown in their folder. Started file transfers continue when the sidebar closes, and their state restores when it reopens. The bar remains visible inside a preview modal.
+
+If website access was withheld, the download bar shows **Allow access & retry** for the media host. The header dots menu also has **Allow website access** for scanning and the media library. Denying access keeps the failed download available to retry. Host restrictions and unsupported stream playlists are reported separately. After rebuilding, reload Allhere on the browser's extensions page and reopen its sidebar to load the new controls and manifest.
+
+Verification: `node scripts/verify-image-actions.mjs --download-check` checks direct file bytes, progress, cancellation, reload persistence, native website-access requests and simulated denial/grant/retry, and the retained YouTube scanning/cards without download actions. `--youtube-scan-check [video-url]` checks a genuine live scan, thumbnails, and embedded playback.
+
+## Download files and selected resources
+
+Files with uncommon extensions are collected alongside common documents and media. In the extension, a single direct HTTP or HTTPS file download uses Chrome's download manager, which keeps the source filename from the server when available. Direct file resources are saved as received, without converting their format. Image and icon actions still validate supported preview formats. Links and page entries download as `.url` shortcuts.
+
+Icon and image menus and sidebar previews include a **Download format** selector. Icons offer Original, SVG, PNG, JPEG, and WebP; images offer Original, PNG, JPEG, and WebP. Original is the default. SVG keeps vector icons as vectors and embeds raster icons as images. JPEG uses a white background for transparency. Converting an animated image saves one frame; Original preserves its source format.
+
+Select resources and choose **Download as ZIP** to package them, including files with uncommon formats. The bulk actions panel has separate **Icon format** and **Image format** selectors; other files keep their original bytes. With Original selected, the ZIP uses source filenames when supplied by the server. It gives duplicate names a suffix and lists unavailable entries in `allhere-skipped.txt`. ZIP creation is limited to 256 MB of included file data in this browser session. The web dashboard also limits an individual fetched download to 256 MB and requires the file host to allow browser cross-origin fetching. Protected links, expired addresses, and streaming playlists may require downloading from the source site.
+
+Verification: build the extension, then run `node scripts/verify-image-actions.mjs --format-check` to check converted file bytes, dimensions, transparency, icon SVGs, single and mixed bulk downloads, and responsive controls. Set `ALLHERE_WEB_URL` to a running web library to include web format controls and a converted ZIP.
+
+## Preview media in the sidebar
+
+Click an album thumbnail, grid card, or list item to open its preview in a modal inside the extension. Images and icons fit without cropping; fonts show their loaded sample, and direct videos and audio have playback controls. Files and links without an inline preview show their details and a download or copy action. Album **View all** buttons still open the matching media tab.
+
+Use **Close**, **Escape**, or click the backdrop to return to the library. Focus returns to the item you opened, and playback stops when the modal closes. Preview clicks do not open a browser page. The full web library keeps its existing details pane.
+
+Browser verification: build the extension, then run `node scripts/verify-image-actions.mjs --modal-check` to check previews, playback, dismissal, keyboard focus, failed-image recovery, and layout at 320, 390, and 720 pixels in an isolated Brave profile.
+
 ## Drag files from the sidebar
 
 Hover over a card, list item, or album thumbnail to prepare its file, then drag it into a webpage's file input or upload drop zone. The dots button shows a spinner during preparation. For larger files, choose **Prepare for dragging** from the dots menu and wait for the ready message. Keep the sidebar open while dropping. Links and page entries drag as URLs into text fields or link-aware editors.
@@ -50,11 +88,11 @@ The web library stores data in browser local storage. The extension stores data 
 
 ## Resource capture
 
-Allhere scans the active page and accessible frames, including open shadow roots. It collects loaded and pending images, lazy image URLs, inline SVGs, distinct symbols from SVG sprites, CSS backgrounds and masks, pseudo-element images, and embedded files. Temporary `blob:` images are copied into durable image data so their library entries still work after the page closes. The extension observes resource-bearing page changes and scans again after the page settles. New resources are added in the background without changing the selected source, section, layout, or scroll position. Switching browser tabs selects and scans the new active page.
+Allhere scans the active page and accessible frames, including open shadow roots. It collects loaded and pending images, lazy image URLs, inline SVGs, distinct symbols from SVG sprites, CSS backgrounds and masks, pseudo-element images, and embedded files. Font icons (including Gemini's Google and Luminous Symbols, Material icons, and CSS icon fonts) are rendered into transparent PNG previews after their fonts load. They remain usable after the source page closes; Copy SVG embeds the PNG instead of inventing vector paths. Hover-only glyphs with layout are included, and unavailable fonts are skipped. Temporary `blob:` images are copied into durable image data so their library entries still work after the page closes. The extension observes resource-bearing page changes and scans again after the page settles, including icon name/text changes and completed font loads. New resources are added in the background without changing the selected source, section, layout, or scroll position. Switching browser tabs selects and scans the new active page.
 
 Repeated scans of the same page keep previously found resources and saved bookmarks. Exact duplicates and known resize variants share one entry; distinct signed URLs and SVG sprite symbols remain separate. The scanner does not impose a resource-count or 8 KB inline-SVG cutoff. The extension requests `unlimitedStorage` to retain larger collections locally. A private or protected page can only yield resources visible to the signed-in browser session where Allhere runs.
 
-To check dynamic capture in an isolated Brave profile, build the extension and run `node scripts/verify-image-actions.mjs --scan-check`. The local gallery checks lazy and blob images, long SVGs, sprite symbols, CSS assets, frames, shadow roots, live updates without sidebar navigation, deduplication, and stable rescans.
+To check dynamic capture in an isolated Brave profile, build the extension and run `node scripts/verify-image-actions.mjs --scan-check`. The local gallery checks lazy and blob images, long SVGs, sprite symbols, CSS assets, pseudo-element and dynamic font icons, unavailable fonts, frames, shadow roots, live updates without sidebar navigation, deduplication, and stable rescans.
 
 ## Security signals
 

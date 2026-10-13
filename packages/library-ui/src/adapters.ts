@@ -7,13 +7,16 @@ import {
   type PageCapture,
   type ResourceKind,
 } from "@allhere/core";
+import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
 
-export type CaptureChangeReason = "tab" | "page";
+export type CaptureChangeReason = "tab" | "page" | "navigation";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
-  save: (captures: PageCapture[]) => Promise<void>;
+  save: (captures: PageCapture[], exclusions?: CaptureExclusions) => Promise<void>;
   subscribe: (listener: (captures: PageCapture[]) => void) => () => void;
+  loadExclusions?: () => Promise<CaptureExclusions>;
+  subscribeExclusions?: (listener: (exclusions: CaptureExclusions) => void) => () => void;
   subscribeToActiveTabChanges?: (listener: (reason: CaptureChangeReason) => void) => () => void;
   captureCurrentPage?: () => Promise<PageCapture>;
 };
@@ -61,7 +64,7 @@ type ChromeLike = {
   };
   tabs?: {
     query: (query: { active: boolean; lastFocusedWindow: boolean }) => Promise<
-      Array<{ id?: number }>
+      Array<{ id?: number; url?: string }>
     >;
     onActivated?: {
       addListener: (listener: (activeInfo: { tabId: number }) => void) => void;
@@ -69,10 +72,10 @@ type ChromeLike = {
     };
     onUpdated?: {
       addListener: (
-        listener: (tabId: number, changeInfo: { status?: string }) => void,
+        listener: (tabId: number, changeInfo: { status?: string; url?: string }) => void,
       ) => void;
       removeListener: (
-        listener: (tabId: number, changeInfo: { status?: string }) => void,
+        listener: (tabId: number, changeInfo: { status?: string; url?: string }) => void,
       ) => void;
     };
   };
@@ -120,11 +123,24 @@ export function createWebAdapter(): LibraryAdapter {
 
   return {
     load,
-    save: async (captures) => {
+    loadExclusions: async () => {
+      if (typeof window === "undefined") return normalizeCaptureExclusions(null);
+      try { return normalizeCaptureExclusions(JSON.parse(window.localStorage.getItem(CAPTURE_EXCLUSIONS_KEY) ?? "null")); }
+      catch { return normalizeCaptureExclusions(null); }
+    },
+    save: async (captures, exclusions) => {
       if (typeof window !== "undefined") {
+        if (exclusions) window.localStorage.setItem(CAPTURE_EXCLUSIONS_KEY, JSON.stringify(exclusions));
         window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(captures));
         window.dispatchEvent(new CustomEvent("allhere-library-updated", { detail: captures }));
+        if (exclusions) window.dispatchEvent(new CustomEvent("allhere-exclusions-updated", { detail: exclusions }));
       }
+    },
+    subscribeExclusions: (listener) => {
+      if (typeof window === "undefined") return () => undefined;
+      const handler = (event: Event) => listener((event as CustomEvent<CaptureExclusions>).detail);
+      window.addEventListener("allhere-exclusions-updated", handler);
+      return () => window.removeEventListener("allhere-exclusions-updated", handler);
     },
     subscribe: (listener) => {
       if (typeof window === "undefined") return () => undefined;
@@ -149,13 +165,28 @@ export function createExtensionAdapter(): LibraryAdapter {
 
   return {
     load,
-    save: async (captures) => {
+    loadExclusions: async () => {
+      const storage = chromeApi()?.storage?.local;
+      if (!storage) return createWebAdapter().loadExclusions!();
+      const result = await storage.get(CAPTURE_EXCLUSIONS_KEY);
+      return normalizeCaptureExclusions(result[CAPTURE_EXCLUSIONS_KEY]);
+    },
+    subscribeExclusions: (listener) => {
+      const changes = chromeApi()?.storage?.onChanged;
+      if (!changes) return createWebAdapter().subscribeExclusions!(listener);
+      const handler = (entries: Record<string, StorageChange>, areaName: string) => {
+        if (areaName === "local" && entries[CAPTURE_EXCLUSIONS_KEY]) listener(normalizeCaptureExclusions(entries[CAPTURE_EXCLUSIONS_KEY].newValue));
+      };
+      changes.addListener(handler);
+      return () => changes.removeListener(handler);
+    },
+    save: async (captures, exclusions) => {
       const api = chromeApi();
       if (api?.storage?.local) {
-        await api.storage.local.set({ [LIBRARY_STORAGE_KEY]: captures });
+        await api.storage.local.set({ [LIBRARY_STORAGE_KEY]: captures, ...(exclusions ? { [CAPTURE_EXCLUSIONS_KEY]: exclusions } : {}) });
         return;
       }
-      await createWebAdapter().save(captures);
+      await createWebAdapter().save(captures, exclusions);
     },
     subscribe: (listener) => {
       const changes = chromeApi()?.storage?.onChanged;
@@ -184,8 +215,10 @@ export function createExtensionAdapter(): LibraryAdapter {
         activeTabId = activeInfo.tabId;
         listener("tab");
       };
-      const handleUpdated = (tabId: number, changeInfo: { status?: string }) => {
-        if (tabId === activeTabId && changeInfo.status === "complete") listener("tab");
+      const handleUpdated = (tabId: number, changeInfo: { status?: string; url?: string }) => {
+        if (tabId !== activeTabId) return;
+        if (changeInfo.status === "complete") listener("tab");
+        else if (changeInfo.url) listener("navigation");
       };
       const handlePageChanged = (message: { type?: string }, sender: { tab?: { id?: number } }) => {
         if (message.type === "allhere.page.changed" && sender.tab?.id === activeTabId) listener("page");
@@ -229,6 +262,10 @@ export function createExtensionAdapter(): LibraryAdapter {
       if (!scan || !/^https?:\/\//i.test(scan.pageUrl)) {
         throw new Error("This page cannot be scanned. Open a regular webpage and try again.");
       }
+      const [currentTab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+      if (currentTab?.id !== tab.id || (currentTab.url && currentTab.url !== scan.pageUrl)) {
+        throw new Error("The page changed while scanning. Scan the current page again.");
+      }
 
       const capturedAt = new Date().toISOString();
       let pageHostname = "";
@@ -265,6 +302,7 @@ async function collectPageResources(): Promise<RawPageScan> {
   const resourceIndexes = new Map<string, number>();
   const blobImages = new Map<string, { kind: "image" | "icon"; label: string; extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType"> }>();
   const spriteIcons = new Map<string, { label: string; width: number; height: number }>();
+  const fontIcons = new Map<string, { glyph: string; label: string; family: string; font: string; color: string; direction: CanvasDirection; size: number }>();
   const pageUrl = window.location.href;
   const pageTitle = document.title || window.location.hostname;
   const queryAll = <T extends Element>(selector: string): T[] => {
@@ -553,6 +591,32 @@ async function collectPageResources(): Promise<RawPageScan> {
     Array.from(media.querySelectorAll<HTMLSourceElement>("source[src]"))
       .find((source) => !source.type || media.canPlayType(source.type) !== "")?.src;
 
+  // A hosted player may use blob/MSE internally; retain its page as a video entry.
+  const hostedVideos = [
+    { address: pageUrl, label: pageTitle.replace(/\s*-\s*YouTube$/, "") },
+    ...queryAll<HTMLIFrameElement>("iframe[src]").map(frame => ({ address: frame.src, label: frame.title || "YouTube video" })),
+    ...queryAll<HTMLAnchorElement>("a[href]").map(link => {
+      const container = link.closest("ytd-video-renderer, ytd-rich-grid-media, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, ytd-reel-item-renderer, yt-lockup-view-model");
+      const title = container?.querySelector<HTMLElement>('#video-title, h3, .yt-lockup-metadata-view-model__title');
+      return { address: link.href, label: title?.getAttribute("title") || title?.textContent?.trim() || link.getAttribute("title") || link.getAttribute("aria-label") || link.textContent?.trim() || "YouTube video" };
+    }),
+  ];
+  const hostedVideoLabels = new Map<string, string>();
+  hostedVideos.forEach(({ address, label }) => {
+    try {
+      const url = new URL(address);
+      const host = url.hostname.toLowerCase();
+      const id = host === "youtu.be" ? url.pathname.slice(1).split("/")[0]
+        : /^(?:www\.|m\.)?youtube(?:-nocookie)?\.com$/.test(host)
+          ? url.pathname === "/watch" ? url.searchParams.get("v") : url.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]+)/)?.[1] : undefined;
+      if (id && /^[\w-]{11}$/.test(id)) {
+        const previous = hostedVideoLabels.get(id);
+        if (!previous || (previous === "YouTube video" && label !== "YouTube video")) hostedVideoLabels.set(id, label || "YouTube video");
+      }
+    } catch { /* Ignore invalid embed addresses. */ }
+  });
+  hostedVideoLabels.forEach((label, id) => add("video", `https://www.youtube.com/watch?v=${id}`, label, { description: label, mimeType: "text/html" }));
+
   queryAll<HTMLVideoElement>("video").forEach((video) => {
     add("video", video.currentSrc || video.src || supportedSource(video), video.title || "Video", {
       width: video.videoWidth || video.width || undefined,
@@ -629,19 +693,47 @@ async function collectPageResources(): Promise<RawPageScan> {
                 ? "script"
                 : fileExtensions.has(extension)
                   ? "document"
-                  : "link";
+                  : anchor.hasAttribute("download") || (/^[a-z0-9]{1,12}$/.test(extension) && !["htm", "html", "php", "asp", "aspx", "jsp", "cfm"].includes(extension))
+                    ? "other"
+                    : "link";
     add(kind, url, anchor.download || text || anchor.getAttribute("aria-label") || anchor.title || url, {
       mimeType: kind === "font"
         ? fontMimeTypes[extension]
         : kind === "icon"
           ? extension === "ico" ? "image/x-icon" : "image/svg+xml"
-          : kind === "document" || kind === "video" || kind === "audio" || kind === "stylesheet" || kind === "script" ? extension : undefined,
+          : anchor.type || (kind === "document" || kind === "other" || kind === "video" || kind === "audio" || kind === "stylesheet" || kind === "script" ? extension : undefined),
     });
   });
 
   queryAll<HTMLElement>("*").forEach((element) => {
     for (const pseudo of [null, "::before", "::after"] as const) {
       const style = window.getComputedStyle(element, pseudo);
+      // Material/Google Symbols and CSS icon fonts render glyphs, not image URLs.
+      // Read the pseudo-element's font as it can differ from its parent (e.g. Font Awesome).
+      const fontFamily = style.fontFamily;
+      const isFontIcon = /(?:symbols|icons|font\s*awesome|icomoon|glyphicons|ionicons|remixicon)/i.test(fontFamily) ||
+        element.matches('mat-icon[data-mat-icon-type="font"], .material-icons, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp');
+      if (isFontIcon && !element.querySelector("svg") && style.display !== "none") {
+        const bounds = element.getBoundingClientRect();
+        const content = pseudo ? style.content.match(/^(["'])([\s\S]*)\1$/)?.[2] : undefined;
+        const glyph = (pseudo ? content?.replace(/\\([\da-f]{1,6})\s?|\\([\s\S])/gi, (_, hex: string, character: string) =>
+          hex ? String.fromCodePoint(Math.min(parseInt(hex, 16), 0x10ffff)) : character)
+          : element.children.length ? undefined : element.textContent?.trim() ||
+            element.getAttribute("fonticon") || element.getAttribute("data-mat-icon-name"))?.trim();
+        const size = parseFloat(style.fontSize);
+        if (glyph && glyph.length <= 100 && bounds.width > 0 && bounds.height > 0 && Number.isFinite(size) && size > 0) {
+          const font = `${style.fontStyle} ${style.fontWeight} ${size}px ${fontFamily}`;
+          const key = JSON.stringify([glyph, font, style.color, style.direction]);
+          if (!fontIcons.has(key)) fontIcons.set(key, {
+            glyph, family: fontFamily, font, color: style.color,
+            direction: style.direction === "rtl" ? "rtl" : "ltr", size,
+            label: element.getAttribute("aria-label") || element.getAttribute("title") ||
+              element.getAttribute("data-mat-icon-name") || element.getAttribute("fonticon") ||
+              element.closest("button, a")?.getAttribute("aria-label") ||
+              (/^[\w -]+$/.test(glyph) ? glyph.replace(/_/g, " ") : "Font icon"),
+          });
+        }
+      }
       const iconProperties = [style.maskImage, style.getPropertyValue("-webkit-mask-image")];
       const imageProperties = [style.backgroundImage, style.content, ...iconProperties];
       for (const imageProperty of imageProperties) {
@@ -661,6 +753,49 @@ async function collectPageResources(): Promise<RawPageScan> {
       }
     }
   });
+
+  // Wait for each required face before drawing. A missing/blocked face must not
+  // become a fallback-font name or a tofu square in the saved library.
+  const loadedFonts = new Map<string, boolean>();
+  await Promise.all([...fontIcons.values()].map(async (icon) => {
+    const key = `${icon.font}:${icon.glyph}`;
+    if (loadedFonts.has(key)) return;
+    loadedFonts.set(key, false);
+    try {
+      const faces = await Promise.race([
+        document.fonts.load(icon.font, icon.glyph),
+        new Promise<FontFace[]>((resolve) => window.setTimeout(() => resolve([]), 1_200)),
+      ]);
+      loadedFonts.set(key, faces.length > 0 && faces.every((face) => face.status === "loaded"));
+    } catch { /* Skip unavailable fonts without failing the rest of the scan. */ }
+  }));
+  for (const icon of fontIcons.values()) {
+    if (!loadedFonts.get(`${icon.font}:${icon.glyph}`)) continue;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 128;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) continue;
+      context.font = icon.font;
+      context.direction = icon.direction;
+      const metrics = context.measureText(icon.glyph);
+      // A ligature name rendered as ordinary text indicates an unsupported glyph.
+      if (/^[a-z][\w_]+$/i.test(icon.glyph) && metrics.width > icon.size * 2.5) continue;
+      const width = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
+      const height = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+      if (!(width > 0 && height > 0)) continue;
+      const scale = 112 / Math.max(width, height);
+      context.scale(scale, scale);
+      context.fillStyle = icon.color;
+      context.fillText(icon.glyph, (128 / scale - width) / 2 + metrics.actualBoundingBoxLeft,
+        (128 / scale - height) / 2 + metrics.actualBoundingBoxAscent);
+      if (!context.getImageData(0, 0, 128, 128).data.some((value, index) => index % 4 === 3 && value > 0)) continue;
+      add("icon", canvas.toDataURL("image/png"), icon.label, {
+        width: 128, height: 128, mimeType: "image/png",
+        description: `${icon.label} · ${icon.family.replace(/["']/g, "")} font icon`,
+      });
+    } catch { /* An individual font icon cannot prevent capturing other resources. */ }
+  }
 
   const stylesheets: CSSStyleSheet[] = [...Array.from(document.styleSheets), ...Array.from(document.adoptedStyleSheets)];
   queryAll<HTMLElement>("*").forEach((element) => {

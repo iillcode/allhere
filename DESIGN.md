@@ -190,6 +190,12 @@ The wide library uses a fixed top bar, a left navigation rail, a flexible main a
 
 Spacing follows a close 4px rhythm, with repeated 8px, 12px, 16px, and 20px gaps and padding. Main content grows with the available width, while cards and detail content keep clear internal padding. Search and category controls can scroll horizontally on narrow screens instead of forcing the whole layout wider.
 
+### Public landing and installation
+
+The landing page keeps the library's Roboto type, white canvas, fine dividers, and Drive-blue actions at a more spacious scale. Its sticky primary navigation uses a lightly translucent white surface. The hero centers a balanced headline, a short explanation, and two actions. **Download for Chrome** is the primary blue button with a multicolor Chrome mark; **Explore the extension** is a text link. Landing-page links to the web library are currently omitted. A small note states the Chrome minimum version and manual setup requirement. Below the hero, a wide browser scene pairs a documentation-style sample webpage (site navigation, section rail, article, code, and related resources) with the live extension interface. Demo panes hide their visible scrollbars while retaining scroll interaction. On narrow screens the download button expands to full width, and the browser scene puts a compact source preview above the panel.
+
+The content after the demo explains the scan-to-library workflow, presents three illustrative use-case panels, and shows resource types with custom line icons. A workspace comparison distinguishes the Chrome side panel from the full web library and makes the JSON archive transfer path explicit; the surfaces do not sync automatically. Separate sections explain local link signals with shield and caution icons, and a native disclosure FAQ animates answer reveals with reduced-motion support. A centered footer links to the Terms and Privacy preview pages. The `/install` page uses the same visual language for the ZIP download and ordered setup steps, then explains the first scan and local-library transfer.
+
 ## Elevation & Depth
 
 Depth is mostly structural: white cards sit on the white canvas with a fine border, and selected states use a tinted surface and blue outline. Soft shadows appear on the raised import control, on hover, and around overlays such as the mobile navigation drawer. The details overlay dims the surrounding page; it does not use a hard offset shadow as a decorative motif.

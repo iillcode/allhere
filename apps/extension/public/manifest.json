@@ -10,7 +10,7 @@
     "48": "icons/allhere-48.png",
     "128": "icons/allhere-128.png"
   },
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "unlimitedStorage"],
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms", "declarativeNetRequestWithHostAccess"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"

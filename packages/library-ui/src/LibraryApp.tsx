@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowDownToLine,
+  ArrowLeft,
   ArrowUpFromLine,
   AudioLines,
   Bookmark,
@@ -53,19 +54,28 @@ import {
   labelForResource,
   mergeCaptures,
   parseArchive,
+  resourceIdentity,
   upsertPageCapture,
   type CapturedResource,
   type PageCapture,
   type ResourceKind,
   type RiskLevel,
 } from "@allhere/core";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type HTMLAttributes } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type HTMLAttributes, type ReactNode } from "react";
 import type { CaptureChangeReason, LibraryAdapter } from "./adapters";
 import { iconAsSvg, loadImageFile } from "./assetFiles";
 import { createResourceZip } from "./bulkExport";
+import { extensionForMime, loadDownloadFile } from "./downloadFiles";
+import { DownloadFormatSelect } from "./DownloadFormatSelect";
+import { convertImageDownload, originalDownloadFormats, type DownloadFormats, type IconDownloadFormat, type ImageDownloadFormat } from "./imageDownloads";
 import { iconNeedsDarkBackground } from "./iconContrast";
+import { loadResourceFile } from "./resourceFiles";
 import { useResourceDrag } from "./useResourceDrag";
 import { sampleCaptures } from "./sample";
+import { LibraryManager } from "./LibraryManager";
+import { DownloadTray } from "./DownloadTray";
+import { useDownloads, youtubeId } from "./downloads";
+import { emptyCaptureExclusions, filterExcludedCapture, restorePageCapture, scopeSavedCaptures, type CaptureExclusions } from "./libraryManagement";
 
 type Mode = "web" | "extension";
 type Category = "all" | "pages" | "images" | "saved" | "icons" | "fonts" | "links" | "media" | "files";
@@ -293,39 +303,35 @@ function dateLabel(value: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-function filenameForResource(item: DisplayItem, verifiedExtension?: string): string {
-  let base = (item.resource?.alt || item.title || "resource")
+function filenameForResource(item: DisplayItem, verifiedExtension?: string, sourceFilename?: string): string {
+  let base = (sourceFilename || item.resource?.alt || item.title || "resource")
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
     .trim().replace(/[. ]+$/, "")
     .slice(0, 90) || "image";
-  if (verifiedExtension) base = base.replace(/\.[a-z0-9]{1,10}$/i, "") || "resource";
+  const existingExtension = base.match(/\.([a-z0-9]{1,12})$/i)?.[1]?.toLowerCase();
+  if (verifiedExtension && existingExtension && existingExtension !== verifiedExtension) base = base.slice(0, -(existingExtension.length + 1)) || "resource";
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(base)) base = `_${base}`;
-  if (verifiedExtension) return `${base}.${verifiedExtension}`;
+  if (verifiedExtension) return existingExtension === verifiedExtension ? base : `${base}.${verifiedExtension}`;
   let extension = "";
   const mimeType = item.resource?.mimeType?.toLowerCase() ?? "";
-  if (mimeType === "image/svg+xml") extension = "svg";
-  else if (mimeType === "image/jpeg") extension = "jpg";
-  else if (mimeType.startsWith("image/")) extension = mimeType.slice(6).split(";")[0].replace(/[^a-z0-9]/g, "");
-  else if (/woff2?|font-woff/.test(mimeType)) extension = mimeType.includes("woff2") ? "woff2" : "woff";
-  else if (mimeType === "text/html") extension = "html";
-  else if (mimeType === "text/css") extension = "css";
-  else if (mimeType.includes("javascript")) extension = "js";
+  extension = extensionForMime(mimeType) || (/^[a-z0-9]{1,12}$/.test(mimeType) ? mimeType : "");
   if (!extension) {
     try {
-      extension = new URL(item.url).pathname.match(/\.([a-z0-9]{2,6})$/i)?.[1]?.toLowerCase() ?? "";
+      extension = new URL(item.url).pathname.match(/\.([a-z0-9]{1,12})$/i)?.[1]?.toLowerCase() ?? "";
     } catch {
       // Use a generic extension when a captured URL cannot be parsed.
     }
   }
+  if (!extension) extension = existingExtension || "";
   if (!extension) {
     if (item.kind === "image" || item.kind === "icon") extension = "img";
     else if (item.kind === "font") extension = "font";
     else if (item.kind === "video") extension = "mp4";
     else if (item.kind === "audio") extension = "audio";
-    else if (item.kind === "link" || item.kind === "page") extension = "html";
+    else if (item.kind === "link" || item.kind === "page") extension = "url";
     else extension = "bin";
   }
-  return `${base}.${extension}`;
+  return existingExtension === extension ? base : `${base}.${extension}`;
 }
 
 function topRisk(resource: CapturedResource): RiskLevel {
@@ -423,7 +429,7 @@ function FontPreview({ item }: { item: DisplayItem }) {
   return <span className={`resource-art__font-sample${family ? " resource-art__font-sample--loaded" : ""}`} style={family ? { fontFamily: `"${family}", var(--font-ui)` } : undefined}>Ag</span>;
 }
 
-function ResourceArt({ item, compact = false }: { item: DisplayItem; compact?: boolean }) {
+function ResourceArt({ item, compact = false, preview = false }: { item: DisplayItem; compact?: boolean; preview?: boolean }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const [failedBlobSource, setFailedBlobSource] = useState<string | null>(null);
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
@@ -431,14 +437,17 @@ function ResourceArt({ item, compact = false }: { item: DisplayItem; compact?: b
   const [blobPreview, setBlobPreview] = useState<{ source: string; url: string } | null>(null);
   const iconImageRef = useRef<HTMLImageElement>(null);
   const Icon = kindIcon(item.kind);
-  const sourceKey = `${item.id}\u0000${item.imageUrl ?? ""}`;
+  const hostedId = item.kind === "video" ? youtubeId(item.url) : undefined;
+  const assetUrl = hostedId ? `https://i.ytimg.com/vi/${hostedId}/hqdefault.jpg` : preview && item.kind === "audio" ? safeWebUrl(item.url) : item.imageUrl;
+  const sourceKey = `${item.id}\u0000${assetUrl ?? ""}`;
   const directFailed = failedSource === sourceKey;
   const blobUrl = blobPreview?.source === sourceKey && failedBlobSource !== sourceKey
     ? blobPreview.url
     : undefined;
-  const previewSource = blobUrl ?? (!directFailed ? item.imageUrl : undefined);
-  const isImagePreview = item.kind === "image" || item.kind === "icon";
-  const isVideoPreview = item.kind === "video";
+  const previewSource = blobUrl ?? (!directFailed ? assetUrl : undefined);
+  const isImagePreview = item.kind === "image" || item.kind === "icon" || Boolean(hostedId);
+  const isVideoPreview = item.kind === "video" && !hostedId;
+  const isMediaPreview = preview && !hostedId && (item.kind === "video" || item.kind === "audio");
 
   useEffect(() => {
     if (item.kind !== "icon" || !previewSource || loadedSource !== previewSource) return;
@@ -452,14 +461,21 @@ function ResourceArt({ item, compact = false }: { item: DisplayItem; compact?: b
   }, [item.kind, loadedSource, previewSource, sourceKey]);
 
   useEffect(() => {
-    if (!directFailed || !isImagePreview || !item.imageUrl || window.location.protocol !== "chrome-extension:") return;
+    if (!directFailed || (!isImagePreview && !isMediaPreview) || !assetUrl || window.location.protocol !== "chrome-extension:") return;
 
     const controller = new AbortController();
     let disposed = false;
     let createdUrl: string | undefined;
     const loadPreview = async () => {
       try {
-        const response = await fetch(item.imageUrl!, {
+        if (isMediaPreview) {
+          const file = await loadResourceFile(item.url, item.kind, controller.signal);
+          if (disposed) return;
+          createdUrl = URL.createObjectURL(file.blob);
+          setBlobPreview({ source: sourceKey, url: createdUrl });
+          return;
+        }
+        const response = await fetch(assetUrl!, {
           credentials: "omit",
           signal: controller.signal,
         });
@@ -507,17 +523,18 @@ function ResourceArt({ item, compact = false }: { item: DisplayItem; compact?: b
       controller.abort();
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [directFailed, isImagePreview, item.imageUrl, sourceKey]);
+  }, [directFailed, isImagePreview, isMediaPreview, assetUrl, item.url, item.kind, sourceKey]);
 
   return (
-    <div className={`resource-art resource-art--${item.kind}${compact ? " resource-art--compact" : ""}${item.kind === "icon" && darkIconSource === sourceKey ? " resource-art--icon-light" : ""}`}>
-      {isImagePreview && previewSource && (
+    <div className={`resource-art resource-art--${item.kind}${compact ? " resource-art--compact" : ""}${preview ? " resource-art--preview" : ""}${item.kind === "icon" && darkIconSource === sourceKey ? " resource-art--icon-light" : ""}`}>
+      {hostedId && preview && <iframe className="resource-art__embed" src={`https://www.youtube-nocookie.com/embed/${hostedId}`} title={`Preview of ${item.title}`} allow="fullscreen; picture-in-picture" allowFullScreen onLoad={() => setLoadedSource(previewSource || "")} />}
+      {isImagePreview && previewSource && !(hostedId && preview) && (
         <img
           ref={item.kind === "icon" ? iconImageRef : undefined}
           className={`resource-art__image${loadedSource === previewSource ? " resource-art__image--loaded" : ""}`}
           src={previewSource}
           alt={item.kind === "image" ? resourceDescription(item) : item.resource?.alt || item.title}
-          loading="lazy"
+          loading={preview ? "eager" : "lazy"}
           draggable={false}
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedSource(previewSource)}
@@ -534,23 +551,35 @@ function ResourceArt({ item, compact = false }: { item: DisplayItem; compact?: b
           src={previewSource}
           aria-label={`Preview of ${item.title}`}
           preload="metadata"
-          muted
+          muted={!preview}
+          controls={preview}
           playsInline
-          disablePictureInPicture
+          disablePictureInPicture={!preview}
           onLoadedData={() => setLoadedSource(previewSource)}
           onError={() => {
             setLoadedSource(null);
-            setFailedSource(sourceKey);
+            if (previewSource === blobUrl) setFailedBlobSource(sourceKey);
+            else setFailedSource(sourceKey);
           }}
         />
       )}
+      {preview && item.kind === "audio" && previewSource && <audio
+        src={previewSource} controls preload="metadata" aria-label={`Preview of ${item.title}`}
+        onLoadedMetadata={() => setLoadedSource(previewSource)}
+        onError={() => {
+          setLoadedSource(null);
+          if (previewSource === blobUrl) setFailedBlobSource(sourceKey);
+          else setFailedSource(sourceKey);
+        }}
+      />}
       {item.kind === "font" && <FontPreview item={item} />}
       {(!previewSource || loadedSource !== previewSource) && item.kind !== "font" && (
         <div className={`resource-art__placeholder${isFileKind(item.kind) ? " resource-art__placeholder--file" : ""}`} aria-hidden="true">
           {isFileKind(item.kind) ? <FileTypeMark item={item} /> : <Icon size={26} strokeWidth={1.7} />}
         </div>
       )}
-      {!compact && <span className="resource-art__kind">{item.kind === "page" ? "Page" : labelForResource(item.kind)}</span>}
+      {!compact && !preview && <span className="resource-art__kind">{item.kind === "page" ? "Page" : labelForResource(item.kind)}</span>}
+      {preview && directFailed && !blobUrl && <p className="resource-art__preview-message" role="status">This preview could not load. Try downloading the resource or scan its page again.</p>}
     </div>
   );
 }
@@ -614,10 +643,11 @@ function ResourceSelect({ item, checked, onToggle, className = "", disabled = fa
   );
 }
 
-function ResourceAlbum({ category, items, onOpen, dragProps, selectedKeys, onToggleSelection, selectionActive, selectionDisabled }: {
+function ResourceAlbum({ category, items, onOpen, onPreview, dragProps, selectedKeys, onToggleSelection, selectionActive, selectionDisabled }: {
   category: Category;
   items: DisplayItem[];
   onOpen: () => void;
+  onPreview?: (item: DisplayItem) => void;
   dragProps: (item: DisplayItem) => HTMLAttributes<HTMLElement>;
   selectedKeys: Set<string>;
   onToggleSelection: (item: DisplayItem) => void;
@@ -638,7 +668,7 @@ function ResourceAlbum({ category, items, onOpen, dragProps, selectedKeys, onTog
         {previews.map((item) => {
           const checked = selectedKeys.has(selectionKey(item));
           return <div className={`resource-album__preview${checked ? " resource-album__preview--selected" : ""}${selectionActive ? " resource-album__preview--selecting" : ""}`} key={item.id}>
-            <button className="resource-album__tile" type="button" onClick={onOpen} aria-label={`Open ${label}: ${resourceDescription(item)}`} {...dragProps(item)}>
+            <button className="resource-album__tile" type="button" onClick={() => onPreview ? onPreview(item) : onOpen()} aria-label={`${onPreview ? "Preview" : `Open ${label}:`} ${resourceDescription(item)}`} {...dragProps(item)}>
               {category === "links" ? <span className="resource-album__link"><ResourceFavicon item={item} /></span> : <ResourceArt item={item} />}
               {(category === "images" ? Boolean(item.resource?.description || item.resource?.alt) : category !== "icons") && <span className="resource-album__caption">{resourceDescription(item)}</span>}
             </button>
@@ -656,6 +686,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [category, setCategory] = useState<Category>("all");
+  const [savedOnly, setSavedOnly] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(false);
+  const [managementQuery, setManagementQuery] = useState("");
+  const [managementBusy, setManagementBusy] = useState(false);
+  const [managementError, setManagementError] = useState("");
+  const [undoDeletion, setUndoDeletion] = useState<{ label: string; pages: PageCapture[]; wholePages: boolean } | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DisplayItem | null>(null);
@@ -672,9 +708,13 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const [sourcePageMenuOpen, setSourcePageMenuOpen] = useState(false);
   const [libraryMenuOpen, setLibraryMenuOpen] = useState(false);
   const [resourceActionId, setResourceActionId] = useState<string | null>(null);
+  const [downloadFormats, setDownloadFormats] = useState<DownloadFormats>(originalDownloadFormats);
+  const downloads = useDownloads(mode === "extension");
   const resourceActionInFlight = useRef(false);
   const resourceDrag = useResourceDrag(filenameForResource, setNotice);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const topbarRef = useRef<HTMLElement>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
   const sourcePageMenuRef = useRef<HTMLDivElement>(null);
   const libraryMenuRef = useRef<HTMLDivElement>(null);
@@ -682,17 +722,33 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const libraryMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const savedMenuItemRef = useRef<HTMLButtonElement>(null);
   const captureSequenceRef = useRef(0);
+  const capturesInFlightRef = useRef(0);
   const capturesRef = useRef<PageCapture[]>([]);
   const autoSelectPendingRef = useRef(false);
+  const activePageUrlRef = useRef<string | null>(null);
+  const managementOpenRef = useRef(false);
+  const exclusionsRef = useRef<CaptureExclusions>(emptyCaptureExclusions());
+  const libraryWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const managementMutationInFlight = useRef(false);
   const captureHandlerRef = useRef<(reason: CaptureChangeReason) => Promise<void>>(async () => undefined);
 
   useEffect(() => {
+    const header = topbarRef.current;
+    if (!header) return;
+    const measure = () => shellRef.current?.style.setProperty("--topbar-height", `${header.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     let alive = true;
-    adapter
-      .load()
-      .then((stored) => {
+    Promise.all([adapter.load(), adapter.loadExclusions?.() ?? Promise.resolve(emptyCaptureExclusions())])
+      .then(([stored, exclusions]) => {
         if (alive) {
           capturesRef.current = stored;
+          exclusionsRef.current = exclusions;
           setCaptures(stored);
           setSelectedCaptureId(stored[0]?.id ?? null);
         }
@@ -707,18 +763,23 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       capturesRef.current = stored;
       setCaptures(stored);
     });
+    const unsubscribeExclusions = adapter.subscribeExclusions?.((exclusions) => { exclusionsRef.current = exclusions; });
     return () => {
       alive = false;
       unsubscribe();
+      unsubscribeExclusions?.();
     };
   }, [adapter]);
 
   const visibleCaptures = sampleMode ? sampleCaptures : captures;
   const selectedCapture = visibleCaptures.find((capture) => capture.id === selectedCaptureId);
   const showAlbums = category === "all";
-  const sourceCapture = selectedCapture;
-  const scopedCaptures = selectedCapture ? [selectedCapture] : visibleCaptures;
-  const allPageResourceCount = useMemo(() => flattenResources(visibleCaptures).length, [visibleCaptures]);
+  const savedScopedCaptures = useMemo(() => scopeSavedCaptures(visibleCaptures, savedOnly), [visibleCaptures, savedOnly]);
+  const sourceCapture = savedScopedCaptures.find((capture) => capture.id === selectedCaptureId);
+  const sourceOptions = savedOnly ? savedScopedCaptures.filter((capture) => capture.resources.length > 0) : savedScopedCaptures;
+  const scopedCaptures = selectedCapture ? savedScopedCaptures.filter((capture) => capture.id === selectedCapture.id) : savedScopedCaptures;
+  const allPageResourceCount = useMemo(() => flattenResources(savedScopedCaptures).length, [savedScopedCaptures]);
+  const savedResourceCount = useMemo(() => flattenResources(visibleCaptures).filter((resource) => resource.saved).length, [visibleCaptures]);
   const allResources = useMemo(() => flattenResources(scopedCaptures), [scopedCaptures]);
   const currentItems = useMemo(
     () => displayItems(scopedCaptures, category),
@@ -747,10 +808,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   }, [currentItems, query]);
 
   const selectableItems = useMemo(() => [
-    ...displayItems(visibleCaptures, "all"),
-    ...displayItems(visibleCaptures, "pages"),
-  ], [visibleCaptures]);
+    ...displayItems(savedScopedCaptures, "all"),
+    ...displayItems(savedScopedCaptures, "pages"),
+  ], [savedScopedCaptures]);
   const selectedItems = useMemo(() => selectableItems.filter((item) => selectedKeys.has(selectionKey(item))), [selectableItems, selectedKeys]);
+  const selectedIcons = selectedItems.some(item => item.kind === "icon");
+  const selectedImages = selectedItems.some(item => item.kind === "image");
   const allVisibleSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedKeys.has(selectionKey(item)));
 
   const toggleSelection = (item: DisplayItem) => {
@@ -771,7 +834,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   useEffect(() => {
     setSelectedKeys(new Set());
     setBulkMenuOpen(false);
-  }, [sampleMode]);
+  }, [sampleMode, savedOnly, managementOpen]);
 
   useEffect(() => {
     setSelectedKeys((current) => new Set([...current].filter((key) =>
@@ -897,50 +960,76 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setOpenActionMenuId(null);
   }, [category, selectedCaptureId, query, view]);
 
-  const saveCapture = async (capture: PageCapture, reason: CaptureChangeReason | "manual") => {
-    const previous = capturesRef.current;
-    const updated = upsertPageCapture(previous, capture);
+  function updateLibrary<T extends { captures: PageCapture[]; exclusions: CaptureExclusions }>(
+    mutate: (current: PageCapture[], exclusions: CaptureExclusions) => T,
+  ): Promise<T> {
+    const pending = libraryWriteQueue.current.then(async () => {
+      const result = mutate(capturesRef.current, exclusionsRef.current);
+      await adapter.save(result.captures, result.exclusions);
+      capturesRef.current = result.captures;
+      exclusionsRef.current = result.exclusions;
+      setCaptures(result.captures);
+      return result;
+    });
+    libraryWriteQueue.current = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  const saveCapture = (capture: PageCapture, reason: CaptureChangeReason | "manual") => updateLibrary((previous, currentExclusions) => {
+    const exclusions = reason === "manual" ? restorePageCapture(currentExclusions, capture.pageUrl) : currentExclusions;
+    const allowedCapture = filterExcludedCapture(capture, exclusions);
+    if (!allowedCapture) return { captures: previous, exclusions, savedCapture: undefined, wasEmpty: previous.length === 0 };
+    const updated = upsertPageCapture(previous, allowedCapture);
     // Background updates should not reorder albums while someone is browsing All pages.
     const previousOrder = new Map(previous.map((item, index) => [item.id, index]));
     const next = reason === "page"
       ? [...updated].sort((left, right) => (previousOrder.get(left.id) ?? Infinity) - (previousOrder.get(right.id) ?? Infinity))
       : updated;
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
-    await adapter.save(next);
-    capturesRef.current = next;
-    setCaptures(next);
-    return { savedCapture, wasEmpty: previous.length === 0 };
-  };
+    return { captures: next, exclusions, savedCapture, wasEmpty: previous.length === 0 };
+  });
 
   const handleCapture = async (reason: CaptureChangeReason | "manual" = "manual") => {
     if (!adapter.captureCurrentPage) return;
+    if (reason !== "manual" && managementOpenRef.current) return;
     const sequence = ++captureSequenceRef.current;
-    setBusy(reason !== "page");
+    capturesInFlightRef.current += 1;
+    setBusy(reason !== "page" && reason !== "navigation");
     if (reason === "manual") setNotice("");
     try {
       const capture = await adapter.captureCurrentPage();
       if (sequence !== captureSequenceRef.current) return;
-      const saveReason = reason === "tab" && !autoSelectPendingRef.current ? "page" : reason;
+      const saveReason = reason === "navigation" || (reason === "tab" && !autoSelectPendingRef.current) ? "page" : reason;
+      const pageChanged = activePageUrlRef.current !== capture.pageUrl;
       const { savedCapture, wasEmpty } = await saveCapture(capture, saveReason);
       if (sequence !== captureSequenceRef.current) return;
-      const shouldSelect = saveReason === "manual" || (saveReason === "tab" && autoSelectPendingRef.current);
+      activePageUrlRef.current = capture.pageUrl;
+      if (!savedCapture) {
+        autoSelectPendingRef.current = false;
+        return;
+      }
+      // A client-side route change should show its own album. More resources
+      // arriving on the same URL should leave the current view in place.
+      const shouldSelect = !savedOnly && (saveReason === "manual" || pageChanged || (saveReason === "tab" && autoSelectPendingRef.current));
       if (shouldSelect) {
         setSelectedCaptureId(savedCapture?.id ?? null);
         setSelected(null);
         setSampleMode(false);
         autoSelectPendingRef.current = false;
-        if (reason === "tab") setNotice("");
-      } else if (wasEmpty) {
+        if (reason === "tab" || pageChanged) setNotice("");
+      } else if (wasEmpty && !savedOnly) {
         setSelectedCaptureId((current) => current ?? savedCapture?.id ?? null);
       }
       if (reason === "manual") {
         setNotice(`${countLabel(savedCapture?.resources.length ?? capture.resources.length, "resource")} saved from ${capture.hostname}.`);
       }
+      autoSelectPendingRef.current = false;
     } catch (error) {
-      if (reason !== "page" && sequence === captureSequenceRef.current) {
+      if (reason !== "page" && reason !== "navigation" && sequence === captureSequenceRef.current) {
         setNotice(error instanceof Error ? error.message : "The page could not be scanned. Try again.");
       }
     } finally {
+      capturesInFlightRef.current -= 1;
       if (sequence === captureSequenceRef.current) setBusy(false);
     }
   };
@@ -953,13 +1042,21 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     let timer: number | undefined;
     let disposed = false;
     const scheduleCapture = (reason: CaptureChangeReason) => {
+      if (managementOpenRef.current) return;
       // Ignore a result from the tab we just switched away from.
       if (reason === "tab") autoSelectPendingRef.current = true;
-      captureSequenceRef.current += 1;
+      if (reason === "tab" || reason === "navigation") captureSequenceRef.current += 1;
       if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        if (!disposed) void captureHandlerRef.current(autoSelectPendingRef.current ? "tab" : reason);
-      }, 450);
+      // URL updates can arrive before an SPA replaces the previous page's DOM.
+      // Its mutation notification usually scans sooner; this is a fallback for
+      // routes that change their URL without changing resource-bearing nodes.
+      const run = () => {
+        if (disposed) return;
+        // A mutation on the same page must not discard or overlap a scan already running.
+        if (reason === "page" && capturesInFlightRef.current > 0) { timer = window.setTimeout(run, 450); return; }
+        void captureHandlerRef.current(autoSelectPendingRef.current ? "tab" : reason);
+      };
+      timer = window.setTimeout(run, reason === "navigation" ? 5_000 : 450);
     };
 
     // Populate the panel for the active tab as soon as the saved library loads.
@@ -983,9 +1080,10 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setBusy(true);
     try {
       const parsed = parseArchive(JSON.parse(await file.text()));
-      const imported = mergeCaptures(captures, parsed.captures);
-      await adapter.save(imported);
-      setCaptures(imported);
+      const { captures: imported } = await updateLibrary((current, exclusions) => ({
+        captures: mergeCaptures(current, parsed.captures),
+        exclusions: parsed.captures.reduce((next, capture) => restorePageCapture(next, capture.pageUrl), exclusions),
+      }));
       setSelectedCaptureId(imported[0]?.id ?? null);
       setSampleMode(false);
       setNotice(`${countLabel(parsed.captures.length, "page")} imported into this library.`);
@@ -1009,21 +1107,106 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setNotice("Your library archive has been downloaded.");
   };
 
-  const handleDelete = async (item: DisplayItem) => {
-    const next =
-      item.kind === "page"
-        ? captures.filter((capture) => capture.id !== item.capture.id)
-        : captures
-            .map((capture) => ({
-              ...capture,
-              resources: capture.resources.filter((resource) => resource.id !== item.id),
-            }));
-    await adapter.save(next);
-    setCaptures(next);
-    setSelected(null);
-    setSampleMode(false);
-    setNotice(item.kind === "page" ? "Page removed from your library." : "Resource removed from your library.");
+  const handleDeletePages = async (captureIds: string[]) => {
+    if (managementMutationInFlight.current) return;
+    managementMutationInFlight.current = true;
+    setManagementBusy(true);
+    setManagementError("");
+    try {
+      const ids = new Set(captureIds);
+      const result = await updateLibrary((current, exclusions) => {
+        const removed = current.filter((capture) => ids.has(capture.id));
+        return {
+          captures: current.filter((capture) => !ids.has(capture.id)),
+          exclusions: { ...exclusions, pages: [...new Set([...exclusions.pages, ...removed.map((capture) => capture.pageUrl)])] },
+          removed,
+        };
+      });
+      if (result.removed.length) {
+        const label = `${countLabel(result.removed.length, "page")} deleted`;
+        setUndoDeletion({ label, pages: result.removed, wholePages: true });
+        setNotice(`${label}.`);
+        setSelected(null);
+      }
+    } catch {
+      setManagementError("The pages could not be deleted. Try again.");
+      setNotice("The pages could not be deleted. Try again.");
+    } finally {
+      managementMutationInFlight.current = false;
+      setManagementBusy(false);
+    }
   };
+
+  const handleDeleteResources = async (captureId: string, resourceIds: string[]) => {
+    if (managementMutationInFlight.current) return;
+    managementMutationInFlight.current = true;
+    setManagementBusy(true);
+    setManagementError("");
+    try {
+      const ids = new Set(resourceIds);
+      const result = await updateLibrary((current, exclusions) => {
+        const page = current.find((capture) => capture.id === captureId);
+        const removed = page?.resources.filter((resource) => ids.has(resource.id)) ?? [];
+        const resources = { ...exclusions.resources };
+        if (page && removed.length) resources[page.pageUrl] = [...new Set([...(resources[page.pageUrl] ?? []), ...removed.map(resourceIdentity)])];
+        return {
+          captures: current.map((capture) => capture.id === captureId ? { ...capture, resources: capture.resources.filter((resource) => !ids.has(resource.id)) } : capture),
+          exclusions: { ...exclusions, resources },
+          removed: page && removed.length ? [{ ...page, resources: removed }] : [],
+          count: removed.length,
+        };
+      });
+      if (result.count) {
+        const label = `${countLabel(result.count, "item")} deleted`;
+        setUndoDeletion({ label, pages: result.removed, wholePages: false });
+        setNotice(`${label}.`);
+        if (selected?.capture.id === captureId && ids.has(selected.id)) setSelected(null);
+      }
+    } catch {
+      setManagementError("The items could not be deleted. Try again.");
+      setNotice("The items could not be deleted. Try again.");
+    } finally {
+      managementMutationInFlight.current = false;
+      setManagementBusy(false);
+    }
+  };
+
+  const handleUndoDeletion = async () => {
+    if (!undoDeletion || managementMutationInFlight.current) return;
+    managementMutationInFlight.current = true;
+    setManagementBusy(true);
+    setManagementError("");
+    try {
+      const undo = undoDeletion;
+      await updateLibrary((current, exclusions) => {
+        const restoredUrls = new Set(undo.pages.map((capture) => capture.pageUrl));
+        const resources = { ...exclusions.resources };
+        if (!undo.wholePages) for (const page of undo.pages) {
+          const restoredKeys = new Set(page.resources.map(resourceIdentity));
+          resources[page.pageUrl] = (resources[page.pageUrl] ?? []).filter((key) => !restoredKeys.has(key));
+        }
+        return {
+          captures: undo.pages.reduce((next, page) => {
+            const existing = next.find((capture) => capture.pageUrl === page.pageUrl);
+            return upsertPageCapture(next, existing ? { ...existing, resources: page.resources } : page);
+          }, current),
+          exclusions: { pages: undo.wholePages ? exclusions.pages.filter((url) => !restoredUrls.has(url)) : exclusions.pages, resources },
+        };
+      });
+      setUndoDeletion(null);
+      setNotice("Deleted items restored.");
+    } catch {
+      setManagementError("The deleted items could not be restored. Try Undo again.");
+      setNotice("The deleted items could not be restored. Try Undo again.");
+    } finally {
+      managementMutationInFlight.current = false;
+      setManagementBusy(false);
+    }
+  };
+
+  const handleDelete = (item: DisplayItem) => item.kind === "page"
+    ? handleDeletePages([item.capture.id])
+    : handleDeleteResources(item.capture.id, [item.id]);
 
   const handleCopy = async (url: string, label = "Address") => {
     try {
@@ -1059,11 +1242,17 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         kind: item.kind,
         url: item.url,
         label: resourceDescription(item),
-        filename: (extension?: string) => filenameForResource(item, extension),
-      })), (processed, total) => setBulkProgress(`Preparing ${processed} of ${total}`));
+        filename: (extension?: string, sourceFilename?: string) => filenameForResource(item, extension, sourceFilename),
+      })), (processed, total) => setBulkProgress(`Preparing ${processed} of ${total}`), downloadFormats);
       const suffix = selectedCapture?.hostname.replace(/[^a-z0-9.-]+/gi, "-") || "resources";
       const filename = `allhere-${suffix}-${new Date().toISOString().slice(0, 10)}.zip`;
       const objectUrl = URL.createObjectURL(result.blob);
+      if (mode === "extension") {
+        try { await downloads.start({ url: objectUrl, kind: "other", title: filename, filename }); }
+        finally { window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000); }
+        setNotice(result.skipped ? `${result.included} resources included; ${result.skipped} skipped. See allhere-skipped.txt inside the ZIP.` : "");
+        return;
+      }
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = filename;
@@ -1084,7 +1273,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     }
   };
 
-  const handleDownloadResource = async (item: DisplayItem) => {
+  const handleDownloadResource = async (item: DisplayItem, format: IconDownloadFormat = "original") => {
+    if (youtubeId(item.url)) return;
     if (resourceActionInFlight.current) return;
     resourceActionInFlight.current = true;
     setResourceActionId(item.id);
@@ -1092,22 +1282,38 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const isImage = item.kind === "image" || item.kind === "icon";
     setNotice(isImage ? "Checking the image before downloading…" : "Preparing your download…");
     try {
-      let blob: Blob;
-      let extension: string | undefined;
-      if (isImage) {
-        const image = await loadImageFile(item.url);
-        blob = image.blob;
-        extension = image.extension;
-      } else {
-        const url = safeWebUrl(item.url);
-        if (!url) throw new Error("This resource does not have a downloadable web address.");
-        const response = await fetch(url, { credentials: "omit", mode: "cors", referrerPolicy: "no-referrer" });
-        if (!response.ok) throw new Error(`The resource host returned HTTP ${response.status}. Try opening its URL.`);
-        blob = await response.blob();
-        if (!blob.size) throw new Error("The resource host returned an empty file.");
+      if (mode === "extension" && item.kind !== "image" && item.kind !== "icon" && item.kind !== "link" && item.kind !== "page") {
+        setNotice("");
+        await downloads.start({ url: item.url, kind: item.kind, title: resourceDescription(item), filename: filenameForResource(item), sourcePage: item.capture.pageUrl });
+        return;
       }
-      const filename = filenameForResource(item, extension);
+      let blob: Blob;
+      let filename: string;
+      if (item.kind === "link" || item.kind === "page") {
+        const url = safeWebUrl(item.url);
+        if (!url) throw new Error("This link does not have a web address.");
+        blob = new Blob([`[InternetShortcut]\r\nURL=${url}\r\n`], { type: "application/octet-stream" });
+        filename = filenameForResource(item, "url");
+      } else {
+        let file;
+        if (isImage && format !== "original") file = await convertImageDownload(item.url, format);
+        else if (isImage) {
+          try { file = await loadImageFile(item.url); }
+          catch (error) {
+            if (!(error instanceof Error) || !/unsupported file instead of an image/i.test(error.message)) throw error;
+            file = await loadDownloadFile(item.url, item.kind, 256 * 1024 * 1024);
+          }
+        } else file = await loadDownloadFile(item.url, item.kind, 256 * 1024 * 1024);
+        blob = file.blob;
+        filename = filenameForResource(item, file.extension, "filename" in file ? file.filename : undefined);
+      }
       const objectUrl = URL.createObjectURL(blob);
+      if (mode === "extension") {
+        try { await downloads.start({ url: objectUrl, kind: item.kind, title: resourceDescription(item), filename }); }
+        finally { window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000); }
+        setNotice("");
+        return;
+      }
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = filename;
@@ -1123,6 +1329,17 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       setResourceActionId(null);
     }
   };
+
+  const downloadTray = downloads.jobs.length ? <DownloadTray jobs={downloads.jobs}
+    onCancel={id => void downloads.cancel(id).catch(error => setNotice(error.message))}
+    onDismiss={id => void downloads.dismiss(id).catch(error => setNotice(error.message))}
+    onShow={id => void downloads.show(id).catch(error => setNotice(error.message))}
+    onAllowAccess={job => downloads.allowAccess(job.permissionOrigins).then(async granted => {
+      if (!granted) throw new Error("Access was not granted. Choose Allow access & retry to request it again.");
+      await downloads.retry(job);
+    })}
+    onHeight={height => shellRef.current?.style.setProperty("--download-tray-height", `${height}px`)}
+  /> : undefined;
 
   const handleCopyIconSvg = async (item: DisplayItem) => {
     if (resourceActionInFlight.current) return;
@@ -1159,18 +1376,16 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const resource = item.resource;
     if (!resource || sampleMode) return;
     const shouldSave = resource.saved !== true;
-    const next = captures.map((capture) => ({
-      ...capture,
-      resources: capture.resources.map((candidate) =>
-        candidate.id === resource.id
-          ? { ...candidate, saved: shouldSave || undefined }
-          : candidate,
-      ),
-    }));
     try {
-      await adapter.save(next);
-      setCaptures(next);
+      await updateLibrary((current, exclusions) => ({
+        captures: current.map((capture) => capture.id === item.capture.id ? {
+          ...capture,
+          resources: capture.resources.map((candidate) => candidate.id === resource.id ? { ...candidate, saved: shouldSave || undefined } : candidate),
+        } : capture),
+        exclusions,
+      }));
       setNotice(shouldSave ? "Resource saved in Saved items." : "Resource removed from Saved items.");
+      if (savedOnly && !shouldSave && selected?.id === item.id && selected.capture.id === item.capture.id) setSelected(null);
     } catch {
       setNotice("This resource could not be updated in your library. Try again.");
     }
@@ -1178,7 +1393,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   const selectCategory = (next: Category) => {
-    setCategory(next);
+    managementOpenRef.current = false;
+    setManagementOpen(false);
+    if (next === "saved") {
+      setSavedOnly(true);
+      setCategory("all");
+      setSelectedCaptureId(null);
+      autoSelectPendingRef.current = false;
+      setQuery("");
+    } else setCategory(next);
     if (next === "all") {
       setQuery("");
     }
@@ -1188,7 +1411,46 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setLibraryMenuOpen(false);
   };
 
+  const openLibrary = () => {
+    managementOpenRef.current = false;
+    setManagementOpen(false);
+    setSavedOnly(false);
+    selectCategory("all");
+    setQuery("");
+  };
+
+  const openManagement = () => {
+    managementOpenRef.current = true;
+    captureSequenceRef.current += 1;
+    autoSelectPendingRef.current = false;
+    setBusy(false);
+    setManagementOpen(true);
+    setManagementQuery("");
+    setManagementError("");
+    setLibraryMenuOpen(false);
+    setSourcePageMenuOpen(false);
+    setOpenActionMenuId(null);
+    setSelected(null);
+    setSelectedKeys(new Set());
+  };
+
+  const closeManagement = () => {
+    managementOpenRef.current = false;
+    setManagementOpen(false);
+    window.requestAnimationFrame(() => libraryMenuTriggerRef.current?.focus());
+  };
+
+  const openPreview = (item: DisplayItem) => {
+    setSelected(item);
+    setOpenActionMenuId(null);
+    setSourcePageMenuOpen(false);
+    setLibraryMenuOpen(false);
+    if (mode === "extension") setNotice("");
+  };
+
   const selectSourcePage = (captureId: string | null) => {
+    managementOpenRef.current = false;
+    setManagementOpen(false);
     autoSelectPendingRef.current = false;
     setSelectedCaptureId(captureId);
     setCategory("all");
@@ -1208,7 +1470,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
   const activeCount = totalCounts[category];
   const title = categoryItems.find((item) => item.id === category)?.label ?? "All resources";
-  const headingTitle = category === "all" ? selectedCapture?.pageTitle || "My library" : title;
+  const headingTitle = savedOnly ? category === "all" ? "Saved items" : `Saved ${title.toLowerCase()}` : category === "all" ? selectedCapture?.pageTitle || "My library" : title;
   const canExport = captures.length > 0 && !sampleMode;
   const activeView = category === "links" ? "list" : category === "all" ? "grid" : view;
 
@@ -1217,6 +1479,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const isMenuOpen = openActionMenuId === item.id;
     const isSaved = item.resource?.saved === true;
     const itemLabel = item.kind === "page" ? "page" : labelForResource(item.kind);
+    const isVisual = item.kind === "icon" || item.kind === "image";
+    const downloadFormat = item.kind === "icon" ? downloadFormats.icons : downloadFormats.images;
 
     return (
       <div className={`resource-actions${inTable ? " resource-actions--table" : ""}${isMenuOpen ? " resource-actions--open" : ""}`} ref={isMenuOpen ? actionMenuRef : undefined}>
@@ -1224,7 +1488,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           className="resource-actions__trigger"
           type="button"
           aria-label={`More actions for ${description}`}
-          aria-haspopup="menu"
+          aria-haspopup={isVisual ? "dialog" : "menu"}
           aria-expanded={isMenuOpen}
           aria-busy={resourceActionId === item.id || resourceDrag.status(item) === "loading"}
           onClick={(event) => {
@@ -1235,7 +1499,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
             }
             if (inTable) {
               const rect = event.currentTarget.getBoundingClientRect();
-              const menuHeight = (item.resource ? 156 : 104) + (item.kind === "icon" ? 44 : 0) + (item.kind !== "link" && item.kind !== "page" ? 44 : 0);
+              const menuHeight = Math.min(280, (item.resource ? 156 : 104) + (item.kind === "icon" ? 44 : 0) - (youtubeId(item.url) ? 44 : 0) + (item.kind !== "link" && item.kind !== "page" ? 44 : 0) + (isVisual ? 100 : 0));
               const top = rect.bottom + menuHeight + 6 <= window.innerHeight - 8
                 ? rect.bottom + 6
                 : Math.max(8, rect.top - menuHeight - 6);
@@ -1252,23 +1516,25 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         {isMenuOpen && (
           <div
             className={`resource-actions__menu${inTable ? " resource-actions__menu--fixed" : ""}`}
-            role="menu"
+            role={isVisual ? "dialog" : "menu"}
             aria-label={`Actions for ${description}`}
             style={inTable && actionMenuPosition ? { top: actionMenuPosition.top, right: actionMenuPosition.right } : undefined}
           >
-            <button className="resource-actions__item" type="button" role="menuitem" onClick={() => { setOpenActionMenuId(null); void handleCopy(item.url, `${itemLabel} URL`); }}>
+            <button className="resource-actions__item" type="button" role={isVisual ? undefined : "menuitem"} onClick={() => { setOpenActionMenuId(null); void handleCopy(item.url, `${itemLabel} URL`); }}>
               <Copy size={16} /><span>Copy URL</span>
             </button>
             {item.kind === "icon" && (
-              <button className="resource-actions__item" type="button" role="menuitem" disabled={resourceActionId !== null} onClick={() => void handleCopyIconSvg(item)}>
+              <button className="resource-actions__item" type="button" disabled={resourceActionId !== null} onClick={() => void handleCopyIconSvg(item)}>
                 <Shapes size={16} /><span>Copy SVG</span>
               </button>
             )}
-            <button className="resource-actions__item" type="button" role="menuitem" disabled={resourceActionId !== null} onClick={() => void handleDownloadResource(item)}>
+            {isVisual && <DownloadFormatSelect label="Download format" value={downloadFormat} allowSvg={item.kind === "icon"} disabled={resourceActionId !== null}
+              onChange={format => setDownloadFormats(current => item.kind === "icon" ? { ...current, icons: format } : { ...current, images: format as ImageDownloadFormat })} />}
+            {!youtubeId(item.url) && <button className="resource-actions__item" type="button" role={isVisual ? undefined : "menuitem"} disabled={resourceActionId !== null} onClick={() => void handleDownloadResource(item, isVisual ? downloadFormat : "original")}>
               <ArrowDownToLine size={16} /><span>Download</span>
-            </button>
+            </button>}
             {item.kind !== "link" && item.kind !== "page" && (
-              <button className="resource-actions__item" type="button" role="menuitem" disabled={resourceDrag.status(item) === "loading"} onClick={() => { setOpenActionMenuId(null); void resourceDrag.prepare(item, true); }}>
+              <button className="resource-actions__item" type="button" role={isVisual ? undefined : "menuitem"} disabled={resourceDrag.status(item) === "loading"} onClick={() => { setOpenActionMenuId(null); void resourceDrag.prepare(item, true); }}>
                 {resourceDrag.status(item) === "loading" ? <LoaderCircle className="spin" size={16} /> : <GripVertical size={16} />}
                 <span>{resourceDrag.status(item) === "loading" ? "Preparing file…" : "Prepare for dragging"}</span>
               </button>
@@ -1279,7 +1545,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                 <button
                   className="resource-actions__item"
                   type="button"
-                  role="menuitem"
+                  role={isVisual ? undefined : "menuitem"}
                   disabled={sampleMode}
                   onClick={() => void handleToggleSavedResource(item)}
                 >
@@ -1295,8 +1561,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   return (
-    <div className={`allhere-shell allhere-shell--${mode}${selectedItems.length ? " allhere-shell--selecting" : ""}`}>
-      <header className="topbar">
+    <div ref={shellRef} className={`allhere-shell allhere-shell--${mode}${selectedItems.length ? " allhere-shell--selecting" : ""}${downloads.jobs.length ? " allhere-shell--downloading" : ""}`}>
+      <header ref={topbarRef} className="topbar">
         <div className="topbar__brand-cluster">
           <button
             className="icon-button topbar__menu"
@@ -1307,7 +1573,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           >
             {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Allhere library home">
+          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Allhere library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
             <span className="brand__mark" aria-hidden="true">
               {mode === "extension" ? <img src="/icons/allhere.svg" alt="" /> : <PanelLeft size={19} strokeWidth={2.2} />}
             </span>
@@ -1319,19 +1585,22 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           <Search size={19} strokeWidth={1.9} aria-hidden="true" />
           <input
             type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search your library"
-            aria-label="Search your library"
+            value={managementOpen ? managementQuery : query}
+            onChange={(event) => managementOpen ? setManagementQuery(event.target.value) : setQuery(event.target.value)}
+            placeholder={managementOpen ? "Search captured pages and items" : "Search your library"}
+            aria-label={managementOpen ? "Search captured pages and items" : "Search your library"}
           />
-          {query && (
-            <button className="searchbox__clear" type="button" aria-label="Clear search" onClick={() => setQuery("")}>
+          {(managementOpen ? managementQuery : query) && (
+            <button className="searchbox__clear" type="button" aria-label="Clear search" onClick={() => managementOpen ? setManagementQuery("") : setQuery("")}>
               <X size={16} />
             </button>
           )}
         </label>
 
         <div className="topbar__actions">
+          <button className="icon-button topbar__export" aria-label="Export library" title="Export library" onClick={handleExport} disabled={!canExport}>
+            <ArrowDownToLine size={19} />
+          </button>
           {mode === "extension" ? (
             <button className="button button--primary button--scan" type="button" aria-label="Scan this page" onClick={() => void handleCapture()} disabled={busy || !loaded}>
               {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <Activity size={17} aria-hidden="true" />}
@@ -1343,7 +1612,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               <span>Import library</span>
             </button>
           )}
-          {mode === "extension" && (
+          {(
             <div className={`library-menu${libraryMenuOpen ? " library-menu--open" : ""}`} ref={libraryMenuRef}>
               <button
                 ref={libraryMenuTriggerRef}
@@ -1365,19 +1634,38 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                 <MoreVertical size={20} aria-hidden="true" />
               </button>
               {libraryMenuOpen && (
-                <div className="library-menu__panel" id="library-menu" role="menu" aria-label="Library menu">
-                  <button ref={savedMenuItemRef} className={`library-menu__item${category === "saved" ? " library-menu__item--active" : ""}`} type="button" role="menuitemradio" aria-checked={category === "saved"} onClick={() => { selectCategory("saved"); libraryMenuTriggerRef.current?.focus(); }}>
+                <div className="library-menu__panel" id="library-menu" role="menu" aria-label="Library menu" onKeyDown={(event) => {
+                  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+                  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+                  const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+                  items[next]?.focus();
+                }}>
+                  <button ref={savedMenuItemRef} className={`library-menu__item${!savedOnly && !managementOpen ? " library-menu__item--active" : ""}`} type="button" role="menuitemradio" aria-checked={!savedOnly && !managementOpen} onClick={() => { openLibrary(); libraryMenuTriggerRef.current?.focus(); }}>
+                    <Files size={17} aria-hidden="true" /><span>All resources</span>
+                  </button>
+                  <button className={`library-menu__item${savedOnly && !managementOpen ? " library-menu__item--active" : ""}`} type="button" role="menuitemradio" aria-checked={savedOnly && !managementOpen} onClick={() => { selectCategory("saved"); libraryMenuTriggerRef.current?.focus(); }}>
                     <Bookmark size={17} aria-hidden="true" />
                     <span>Saved items</span>
-                    <span className="library-menu__count">{totalCounts.saved}</span>
+                    <span className="library-menu__count">{savedResourceCount}</span>
                   </button>
+                  <span className="resource-actions__divider" aria-hidden="true" />
+                  <button className={`library-menu__item${managementOpen ? " library-menu__item--active" : ""}`} type="button" role="menuitem" disabled={!loaded} onClick={openManagement}>
+                    <FileCog size={17} aria-hidden="true" /><span>Manage</span><span className="library-menu__count">{captures.length}</span>
+                  </button>
+                  {mode === "extension" && <button className="library-menu__item" type="button" role="menuitem" onClick={() => {
+                    const request = downloads.allowAccess();
+                    setLibraryMenuOpen(false);
+                    libraryMenuTriggerRef.current?.focus();
+                    void request.then(granted => {
+                      setNotice(granted ? "Website access is enabled. You can scan pages and download available media." : "Website access was not granted. Open the menu to request it again.");
+                    }).catch(error => setNotice(error.message));
+                  }}><ShieldCheck size={17} aria-hidden="true" /><span>Allow website access</span></button>}
                 </div>
               )}
             </div>
           )}
-          <button className="icon-button topbar__export" aria-label="Export library" title="Export library" onClick={handleExport} disabled={!canExport}>
-            <ArrowDownToLine size={19} />
-          </button>
         </div>
         <input
           ref={fileInputRef}
@@ -1403,13 +1691,13 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               {categoryItems.map(({ id, label, Icon }) => (
                 <button
                   key={id}
-                  className={`nav-item${category === id ? " nav-item--active" : ""}`}
-                  onClick={() => selectCategory(id)}
-                  aria-current={category === id ? "page" : undefined}
+                  className={`nav-item${!managementOpen && (id === "saved" ? savedOnly : !savedOnly && category === id) ? " nav-item--active" : ""}`}
+                  onClick={() => { if (id !== "saved") setSavedOnly(false); selectCategory(id); }}
+                  aria-current={!managementOpen && (id === "saved" ? savedOnly : !savedOnly && category === id) ? "page" : undefined}
                 >
                   <Icon size={18} strokeWidth={1.9} />
                   <span>{label}</span>
-                  <span className="nav-item__count">{totalCounts[id]}</span>
+                  <span className="nav-item__count">{id === "saved" ? savedResourceCount : totalCounts[id]}</span>
                 </button>
               ))}
             </nav>
@@ -1464,6 +1752,23 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         )}
 
         <main className="main-content">
+          {managementOpen ? <LibraryManager
+            captures={captures}
+            query={managementQuery}
+            onQueryChange={setManagementQuery}
+            busy={managementBusy}
+            error={managementError}
+            undoLabel={undoDeletion?.label}
+            onClose={closeManagement}
+            onUndo={handleUndoDeletion}
+            onDeletePages={handleDeletePages}
+            onDeleteResources={handleDeleteResources}
+            renderPreview={(capture, resource) => <ResourceArt compact item={{
+              id: resource.id, kind: resource.kind, title: resource.label, url: resource.url, capture, resource,
+              imageUrl: safeAssetPreviewUrl(resource.url, resource.kind),
+            }} />}
+          /> : <>
+          {savedOnly && <button className="saved-scope-back" type="button" onClick={openLibrary}><ArrowLeft size={16} />Back to library</button>}
           <div className="content-heading">
             <div className="content-heading__title">
               <h1>{headingTitle}</h1>
@@ -1472,8 +1777,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   ? "A sample workspace with example page resources."
                   : loaded
                     ? selectedCapture
-                      ? `${selectedCapture.hostname} · ${countLabel(allResources.length, "resource")}`
-                      : `${countLabel(visibleCaptures.length, "page")} · ${countLabel(allResources.length, "resource")}`
+                      ? `${selectedCapture.hostname} · ${countLabel(allResources.length, savedOnly ? "saved resource" : "resource")}`
+                      : `${countLabel(sourceOptions.length, "page")} · ${countLabel(allResources.length, savedOnly ? "saved resource" : "resource")}`
                     : "Loading your library…"}
               </p>
             </div>
@@ -1528,7 +1833,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   <SourcePageMark capture={sourceCapture} allPages={!sourceCapture} />
                   <span className="page-scope__selection">
                     <strong>{sourceCapture?.pageTitle || sourceCapture?.hostname || "All pages"}</strong>
-                    <small>{sourceCapture?.hostname || `${visibleCaptures.length} saved pages`}</small>
+                    <small>{sourceCapture?.hostname || `${sourceOptions.length} ${savedOnly ? "pages with saved items" : "captured pages"}`}</small>
                   </span>
                   <span className="page-scope__count">{sourceCapture?.resources.length ?? allPageResourceCount}</span>
                   <ChevronDown size={17} aria-hidden="true" />
@@ -1543,10 +1848,10 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                       onClick={() => selectSourcePage(null)}
                     >
                       <SourcePageMark allPages />
-                      <span className="page-scope__option-copy"><strong>All pages</strong><small>{countLabel(visibleCaptures.length, "saved page")}</small></span>
+                      <span className="page-scope__option-copy"><strong>All pages</strong><small>{countLabel(sourceOptions.length, savedOnly ? "page with saved items" : "captured page")}</small></span>
                       <span className="page-scope__count">{allPageResourceCount}</span>
                     </button>
-                    {visibleCaptures.map((capture) => (
+                    {sourceOptions.map((capture) => (
                       <button
                         key={capture.id}
                         className={`page-scope__option${sourceCapture?.id === capture.id ? " page-scope__option--active" : ""}`}
@@ -1578,7 +1883,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   className={`category-pill${category === id ? " category-pill--active" : ""}`}
                   onClick={() => selectCategory(id)}
                 >
-                  {label}
+                  {savedOnly && id === "all" ? "All saved" : label}
                   <span>{totalCounts[id]}</span>
                 </button>
               ))}
@@ -1601,11 +1906,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           {notice && (
             <div className="notice" role="status">
               <span>{notice}</span>
+              {undoDeletion && <button className="notice__undo" type="button" disabled={managementBusy} onClick={() => void handleUndoDeletion()}>Undo deletion</button>}
               <button className="icon-button icon-button--small" aria-label="Dismiss message" onClick={() => setNotice("")}><X size={16} /></button>
             </div>
           )}
 
-          <div className={`library-layout${selected ? " library-layout--details" : ""}`}>
+          <div className={`library-layout${selected && mode === "web" ? " library-layout--details" : ""}`}>
             <section className="resource-section" aria-label={title}>
               {!loaded ? (
                 <div className="loading-state"><LoaderCircle className="spin" size={23} /><span>Opening your library…</span></div>
@@ -1614,7 +1920,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   {pageAlbums.map(({ capture, sections }) => (
                     <div className="page-albums" key={capture.id} data-album-page={capture.id}>
                       {scopedCaptures.length > 1 && <h2 className="page-albums__title"><SourcePageMark capture={capture} /><span>{capture.pageTitle || capture.hostname}</span></h2>}
-                      {sections.map(({ id, items }) => <ResourceAlbum key={id} category={id} items={items} onOpen={() => openAlbumCategory(capture.id, id)} dragProps={resourceDrag.props} selectedKeys={selectedKeys} onToggleSelection={toggleSelection} selectionActive={selectedItems.length > 0} selectionDisabled={bulkBusy} />)}
+                      {sections.map(({ id, items }) => <ResourceAlbum key={id} category={id} items={items} onOpen={() => openAlbumCategory(capture.id, id)} onPreview={mode === "extension" ? openPreview : undefined} dragProps={resourceDrag.props} selectedKeys={selectedKeys} onToggleSelection={toggleSelection} selectionActive={selectedItems.length > 0} selectionDisabled={bulkBusy} />)}
                     </div>
                   ))}
                 </div>
@@ -1650,8 +1956,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                 ) : (
                   <div className="empty-state empty-state--compact">
                     <Files size={27} />
-                    <h2>{selectedCapture ? `No ${category === "all" ? "resources" : title.toLowerCase()} on this page` : `No ${title.toLowerCase()} yet`}</h2>
-                    <p>{selectedCapture ? "Choose another page or scan this page again." : "Choose another section or scan a page that contains this kind of resource."}</p>
+                    <h2>{savedOnly ? category === "all" ? "No saved items yet" : `No saved ${title.toLowerCase()} yet` : selectedCapture ? `No ${category === "all" ? "resources" : title.toLowerCase()} on this page` : `No ${title.toLowerCase()} yet`}</h2>
+                    <p>{savedOnly ? "Use a resource’s menu to save it, or choose another source page." : selectedCapture ? "Choose another page or scan this page again." : "Choose another section or scan a page that contains this kind of resource."}</p>
                   </div>
                 )
               ) : activeView === "grid" ? (
@@ -1665,7 +1971,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                       <div className={`resource-card-frame${isMenuOpen ? " resource-card-frame--menu-open" : ""}${checked ? " resource-card-frame--selected" : ""}${selectedItems.length ? " resource-card-frame--selecting" : ""}`} key={item.id}>
                         <button
                           className={`resource-card${selected?.id === item.id ? " resource-card--selected" : ""}`}
-                          onClick={() => setSelected(item)}
+                          onClick={() => openPreview(item)}
                           aria-label={description}
                           {...resourceDrag.props(item)}
                         >
@@ -1703,7 +2009,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                             <td>
                               <div className="table-name-cell">
                                 <ResourceSelect item={item} checked={checked} onToggle={toggleSelection} className="resource-select--list" disabled={bulkBusy} />
-                                <button className={`table-name${category === "links" ? " table-name--link" : ""}`} onClick={() => setSelected(item)} {...resourceDrag.props(item)}>
+                                <button className={`table-name${category === "links" ? " table-name--link" : ""}`} onClick={() => openPreview(item)} {...resourceDrag.props(item)}>
                                   {category === "links" ? <ResourceFavicon item={item} /> : item.kind === "page" ? <span className={`table-name__icon table-name__icon--${item.kind}`}><Icon size={17} /></span> : <ResourceArt item={item} compact />}
                                   <span>
                                     <strong title={item.kind === "image" ? resourceDescription(item) : item.title}>{item.kind === "image" ? resourceDescription(item) : item.title}</strong>
@@ -1729,7 +2035,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               )}
             </section>
 
-            {selected && (
+            {selected && mode === "web" && (
               <ResourceDetails
                 item={selected}
                 onClose={() => setSelected(null)}
@@ -1739,8 +2045,21 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               />
             )}
           </div>
+          </>}
         </main>
       </div>
+
+      {selected && mode === "extension" && <ResourceModal key={selectionKey(selected)} item={selected}
+        onClose={() => setSelected(null)} onDelete={() => sampleMode ? setSelected(null) : handleDelete(selected)}
+        onCopy={handleCopy} allowDelete={!sampleMode} onDownload={youtubeId(selected.url) ? undefined : () => void handleDownloadResource(selected, selected.kind === "icon" ? downloadFormats.icons : selected.kind === "image" ? downloadFormats.images : "original")}
+        downloadFormat={selected.kind === "icon" ? downloadFormats.icons : downloadFormats.images}
+        onDownloadFormatChange={selected.kind === "icon" || selected.kind === "image" ? format => setDownloadFormats(current => selected.kind === "icon" ? { ...current, icons: format } : { ...current, images: format as ImageDownloadFormat }) : undefined}
+        downloadBusy={resourceActionId === selected.id}
+        statusMessage={notice}
+        downloadTray={downloadTray}
+      />}
+
+      {!(selected && mode === "extension") && downloadTray}
 
       {selectedItems.length > 0 && (
         <div className="bulk-selection" role="region" aria-label="Selected resources" aria-busy={bulkBusy}>
@@ -1757,7 +2076,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               className="bulk-selection__menu-trigger"
               type="button"
               aria-label="More actions for selected resources"
-              aria-haspopup="menu"
+              aria-haspopup={selectedIcons || selectedImages ? "dialog" : "menu"}
               aria-expanded={bulkMenuOpen}
               onClick={() => setBulkMenuOpen((open) => !open)}
               disabled={bulkBusy || resourceActionId !== null}
@@ -1765,9 +2084,11 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               {bulkBusy ? <LoaderCircle className="spin" size={18} /> : <MoreVertical size={19} />}
             </button>
             {bulkMenuOpen && (
-              <div className="bulk-selection__menu-panel" role="menu" aria-label="Bulk actions">
-                <button type="button" role="menuitem" onClick={() => void handleBulkDownload()}><FileArchive size={17} /><span>Download as ZIP</span></button>
-                <button type="button" role="menuitem" onClick={() => void handleBulkCopy()}><Copy size={17} /><span>Copy URLs</span></button>
+              <div className="bulk-selection__menu-panel" role={selectedIcons || selectedImages ? "dialog" : "menu"} aria-label="Bulk actions">
+                {selectedIcons && <DownloadFormatSelect label="Icon format" value={downloadFormats.icons} allowSvg onChange={format => setDownloadFormats(current => ({ ...current, icons: format }))} />}
+                {selectedImages && <DownloadFormatSelect label="Image format" value={downloadFormats.images} onChange={format => setDownloadFormats(current => ({ ...current, images: format as ImageDownloadFormat }))} />}
+                <button type="button" role={selectedIcons || selectedImages ? undefined : "menuitem"} onClick={() => void handleBulkDownload()}><FileArchive size={17} /><span>Download as ZIP</span></button>
+                <button type="button" role={selectedIcons || selectedImages ? undefined : "menuitem"} onClick={() => void handleBulkCopy()}><Copy size={17} /><span>Copy URLs</span></button>
               </div>
             )}
           </div>
@@ -1793,18 +2114,63 @@ function SecurityPip({ resource }: { resource: CapturedResource }) {
   );
 }
 
+function ResourceModal(props: Parameters<typeof ResourceDetails>[0]) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.showModal();
+    return () => {
+      dialog.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => {
+        media.pause();
+        media.removeAttribute("src");
+        media.load();
+      });
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, []);
+  return <dialog ref={dialogRef} className="resource-modal" aria-label={`Preview of ${resourceDescription(props.item)}`}
+    onCancel={(event) => { event.preventDefault(); props.onClose(); }}
+    onClick={(event) => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) props.onClose();
+    }}>
+    <ResourceDetails {...props} preview />
+  </dialog>;
+}
+
 function ResourceDetails({
   item,
   onClose,
   onDelete,
   onCopy,
   allowDelete,
+  preview = false,
+  downloadTray,
+  onDownload,
+  downloadBusy = false,
+  downloadFormat = "original",
+  onDownloadFormatChange,
+  statusMessage,
 }: {
   item: DisplayItem;
   onClose: () => void;
   onDelete: () => void;
   onCopy: (url: string) => void;
   allowDelete: boolean;
+  preview?: boolean;
+  onDownload?: () => void;
+  downloadBusy?: boolean;
+  downloadFormat?: IconDownloadFormat;
+  onDownloadFormatChange?: (format: IconDownloadFormat) => void;
+  statusMessage?: string;
+  downloadTray?: ReactNode;
 }) {
   const resource = item.resource;
   const webUrl = safeWebUrl(item.url);
@@ -1814,11 +2180,12 @@ function ResourceDetails({
   return (
     <aside className="details-panel" aria-label="Resource details">
       <div className="details-panel__top">
-        <span className="details-panel__heading">Details</span>
-        <button className="icon-button icon-button--small" aria-label="Close details" onClick={onClose}><X size={17} /></button>
+        <span className="details-panel__heading">{preview ? "Preview" : "Details"}</span>
+        <button className="icon-button icon-button--small" aria-label={preview ? "Close preview" : "Close details"} onClick={onClose}><X size={17} /></button>
       </div>
 
-      <ResourceArt item={item} />
+      <ResourceArt item={item} preview={preview} />
+      {preview && !["image", "icon", "font", "video", "audio"].includes(item.kind) && <p className="resource-modal__unsupported">An inline preview is not available for this resource. You can copy its address{item.kind === "link" || item.kind === "page" ? "." : " or download the file."}</p>}
 
       <div className="details-title">
         <span className={`details-title__icon details-title__icon--${item.kind}`}><Icon size={17} /></span>
@@ -1875,7 +2242,14 @@ function ResourceDetails({
       </div>
 
       <div className="details-actions">
-        {webUrl ? (
+        {preview && onDownloadFormatChange && <DownloadFormatSelect label="Download format" value={downloadFormat} allowSvg={item.kind === "icon"} disabled={downloadBusy} onChange={onDownloadFormatChange} />}
+        {preview ? (
+          item.kind === "link" || item.kind === "page" || !onDownload
+            ? <button className="button button--primary details-open" onClick={() => onCopy(item.url)}><Copy size={16} /><span>Copy URL</span></button>
+            : <button className="button button--primary details-open" onClick={onDownload} disabled={downloadBusy}>
+              {downloadBusy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}<span>{downloadBusy ? "Preparing…" : "Download"}</span>
+            </button>
+        ) : webUrl ? (
           <a className="button button--primary details-open" href={webUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink size={16} /><span>Open resource</span>
           </a>
@@ -1885,7 +2259,9 @@ function ResourceDetails({
           </button>
         )}
         {allowDelete && <button className="icon-button details-delete" aria-label="Remove from library" title="Remove from library" onClick={onDelete}><Trash2 size={17} /></button>}
+        {preview && statusMessage && <p className="resource-modal__status" role="status">{statusMessage}</p>}
       </div>
+      {preview && downloadTray && <div className="modal-downloads">{downloadTray}</div>}
     </aside>
   );
 }

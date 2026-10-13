@@ -1,12 +1,13 @@
 import type { ResourceKind } from "@allhere/core";
 import { Zip, ZipPassThrough } from "fflate";
-import { loadResourceFile } from "./resourceFiles";
+import { loadDownloadFile } from "./downloadFiles";
+import { convertImageDownload, originalDownloadFormats, type DownloadFormats } from "./imageDownloads";
 
 type BulkEntry = {
   kind: ResourceKind | "page";
   url: string;
   label: string;
-  filename: (extension?: string) => string;
+  filename: (extension?: string, sourceFilename?: string) => string;
 };
 
 const MAX_ZIP_BYTES = 256 * 1024 * 1024;
@@ -26,6 +27,7 @@ function uniqueFilename(filename: string, used: Set<string>): string {
 export async function createResourceZip(
   entries: BulkEntry[],
   onProgress: (processed: number, total: number) => void,
+  formats: DownloadFormats = originalDownloadFormats,
 ): Promise<{ blob: Blob; included: number; skipped: number }> {
   const chunks: Uint8Array<ArrayBuffer>[] = [];
   const usedNames = new Set<string>();
@@ -59,10 +61,13 @@ export async function createResourceZip(
         bytes = new TextEncoder().encode(`[InternetShortcut]\r\nURL=${url.href}\r\n`);
         filename = entry.filename("url");
       } else {
-        const file = await loadResourceFile(entry.url, entry.kind);
+        const format = entry.kind === "icon" ? formats.icons : entry.kind === "image" ? formats.images : "original";
+        const file = format === "original"
+          ? await loadDownloadFile(entry.url, entry.kind, MAX_ZIP_BYTES - bytesAdded, "The ZIP reached its 256 MB size limit.")
+          : await convertImageDownload(entry.url, format);
         if (bytesAdded + file.blob.size > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
         bytes = new Uint8Array(await file.blob.arrayBuffer());
-        filename = entry.filename(file.extension);
+        filename = entry.filename(file.extension, "filename" in file ? file.filename : undefined);
       }
       if (bytesAdded + bytes.byteLength > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
       addFile(filename, bytes);
