@@ -23,7 +23,7 @@ const port = await new Promise((done) => {
   });
 });
 const profile = join(tmpdir(), `allhere-store-screenshot-${crypto.randomUUID()}`);
-const extensionPath = source === "installed" ? await localFixtureExtension(profile) : undefined;
+const extensionPath = source === "installed" ? await localFixtureExtension(profile, [webUrl]) : undefined;
 const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`,
   `--remote-debugging-port=${port}`,

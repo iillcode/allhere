@@ -1,16 +1,20 @@
 import { cp, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-// Headless browsers cannot accept Chrome's native optional-permission dialog.
-// Install the unchanged built code with only the local fixture host pre-granted.
-// The production manifest remains optional; tests separately assert scope,
-// denied permission handling, and that requests carry a user gesture.
-export async function localFixtureExtension(profile) {
+// Headless browsers cannot click the native toolbar or accept its site dialog.
+// Install unchanged built code with only the requested fixture hosts pre-granted.
+// The production ZIP has activeTab and optional file-host access, no required
+// hosts. Negative scan tests use an ungranted host; file tests check consent.
+export async function localFixtureExtension(profile, urls = ["http://127.0.0.1/"]) {
   const destination = join(profile, "fixture-extension");
   await cp(resolve("apps/extension/out"), destination, { recursive: true });
   const manifestPath = join(destination, "manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  manifest.host_permissions = ["http://127.0.0.1/*"];
+  manifest.host_permissions = [...new Set(urls.map(value => {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol) || url.hostname.includes("*")) throw new Error("Fixture access must name a specific HTTP(S) host.");
+    return `${url.protocol}//${url.hostname}/*`;
+  }))];
   await writeFile(manifestPath, JSON.stringify(manifest));
   return destination;
 }

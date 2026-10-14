@@ -21,7 +21,7 @@ export default function TermsPage() {
         {
           title: "Using Allhere",
           paragraphs: [
-            "Scans start when you choose Scan page, including after opening or switching tabs. Chrome may ask you to allow access to the specific site before scanning or to a resource's original host before a file action. Use Allhere only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
+            "Click Allhere's toolbar icon on a webpage to give temporary access to that tab, then choose Scan page to start a scan. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Chrome may ask you to allow access to a resource's original host before a file action. Use Allhere only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
           ],
         },
         {

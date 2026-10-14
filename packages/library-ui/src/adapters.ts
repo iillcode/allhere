@@ -8,7 +8,6 @@ import {
   type ResourceKind,
 } from "@allhere/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
-import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
@@ -16,7 +15,6 @@ export type LibraryAdapter = {
   subscribe: (listener: (captures: PageCapture[]) => void) => () => void;
   loadExclusions?: () => Promise<CaptureExclusions>;
   subscribeExclusions?: (listener: (exclusions: CaptureExclusions) => void) => () => void;
-  requestCurrentPageAccess?: () => Promise<boolean>;
   captureCurrentPage?: () => Promise<PageCapture>;
 };
 
@@ -136,17 +134,20 @@ export function createWebAdapter(): LibraryAdapter {
 }
 
 export function createExtensionAdapter(): LibraryAdapter {
-  const requestPageAccess = async () => {
+  const activePage = async () => {
     const api = chromeApi();
     if (!api?.tabs || !api.scripting) throw new Error("Capture is available from the installed Chrome side panel.");
     const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
-    if (typeof tab?.id !== "number" || !tab.url || !/^https?:\/\//i.test(tab.url)) {
-      throw new Error("This page cannot be scanned. Open a regular webpage and click Scan page.");
+    if (typeof tab?.id !== "number" || !tab.url) {
+      throw new Error("Click Allhere's toolbar icon on this tab, then choose Scan page.");
     }
-    // The Scan page gesture authorizes a request for this site only. Reading
-    // the active URL identifies the permission; it does not capture the page.
-    const granted = await requestWebsiteAccess(websiteOrigins([tab.url]));
-    return { api, tab: { ...tab, id: tab.id, url: tab.url }, granted };
+    if (!/^https?:\/\//i.test(tab.url) || /^https?:\/\/(?:chromewebstore\.google\.com\/|chrome\.google\.com\/webstore(?:\/|$))/i.test(tab.url)) {
+      throw new Error("Chrome blocks scanning browser and Store pages. Open a regular webpage, click Allhere's toolbar icon, then choose Scan page.");
+    }
+    // The toolbar action grants temporary activeTab access. Scan page uses
+    // that access (or a host grant already allowed for a file action), without
+    // requesting a persistent site permission or opening a consent prompt.
+    return { api, tab: { ...tab, id: tab.id, url: tab.url } };
   };
 
   const load = async () => {
@@ -194,13 +195,11 @@ export function createExtensionAdapter(): LibraryAdapter {
       changes.addListener(handler);
       return () => changes.removeListener(handler);
     },
-    requestCurrentPageAccess: async () => (await requestPageAccess()).granted,
     captureCurrentPage: async () => {
-      const { api, tab, granted } = await requestPageAccess();
-      if (!granted) throw new Error("Access to this site was not granted. Click Scan page to try again.");
+      const { api, tab } = await activePage();
       const [requestedTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
       if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url) {
-        throw new Error("The active page changed. Click Scan page on the page you want to collect.");
+        throw new Error("The active page changed. Click Allhere's toolbar icon on the page you want to collect, then choose Scan page.");
       }
 
       let injected: Array<{ frameId?: number; result?: RawPageScan }>;
@@ -215,7 +214,7 @@ export function createExtensionAdapter(): LibraryAdapter {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (/cannot access contents|permission|restricted|chrome:\/\//i.test(message)) {
-          throw new Error("Chrome does not allow scanning this page. Open a regular webpage and click Scan page.");
+          throw new Error("Click Allhere's toolbar icon on this tab, then choose Scan page. Chrome blocks access to some protected pages.");
         }
         throw new Error(`Could not scan this page${message ? `: ${message}` : ". Try again."}`);
       }
@@ -237,8 +236,8 @@ export function createExtensionAdapter(): LibraryAdapter {
         // drag helper can be installed.
       }
       const [currentTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
-      if (currentTab?.id !== tab.id || (currentTab.url && currentTab.url !== scan.pageUrl)) {
-        throw new Error("The page changed while scanning. Scan the current page again.");
+      if (currentTab?.id !== tab.id || currentTab.url !== scan.pageUrl) {
+        throw new Error("The page changed while scanning. Click Allhere's toolbar icon on the current tab, then choose Scan page.");
       }
 
       const capturedAt = new Date().toISOString();

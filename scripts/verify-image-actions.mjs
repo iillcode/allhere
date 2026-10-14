@@ -534,14 +534,9 @@ try {
     const modalShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-modal-390.png'),Buffer.from(modalShot.data,'base64'));
     console.log('PASS Brave downloads: actual bytes/progress, reload persistence, cancellation, HTML/playlist rejection, modal visibility, 320/390/720px.');
     await page.evaluate("document.querySelector('[aria-label=\"Close preview\"]').click()",true);
-    // The native request uses a genuine user gesture. Missing-host and denied-prompt
-    // branches below are simulated only in this disposable browser profile.
-    await page.evaluate("document.querySelector('[aria-label=\"Open library menu\"]').click()",true);
-    const {targetId:accessTab}=await browserCdp.send('Target.createTarget',{url:base+'/source'});
-    await delay(400);
-    await page.evaluate("[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.includes('Allow access to this site')).click()",true);
-    await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('Access to this site is enabled')"),'Site access menu did not request native permissions');
-    await browserCdp.send('Target.closeTarget',{targetId:accessTab});
+    // Exercise file-host consent through the download tray, never through the
+    // removed scanning menu. Missing access and denial are simulated here;
+    // the successful retry calls Chrome's native API for the pre-granted host.
     const workerInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.type==='service_worker'),'Permission test worker is missing');
     const permissionWorker=new Cdp(workerInfo.webSocketDebuggerUrl);await permissionWorker.ready();
     const permissionOrigin='http://127.0.0.1/*';
@@ -555,9 +550,11 @@ try {
     assert.deepEqual(await page.evaluate("window.__requested"),{origins:[permissionOrigin],gesture:true});
     assert.ok(await page.evaluate("(()=>{const b=document.querySelector('.download-tray__access'),r=b.getBoundingClientRect();return r.width>100&&r.height>=32&&r.height<60&&r.right<=innerWidth;})()"),'Permission button is not readable within the sidebar');
     const permissionShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-permission-390.png'),Buffer.from(permissionShot.data,'base64'));
-    await permissionWorker.evaluate("globalThis.__allhereMissing=false");await page.evaluate("window.__denyAccess=false");
+    await permissionWorker.evaluate("globalThis.__allhereMissing=false");
+    await page.evaluate("chrome.permissions.request=p=>{window.__requested={...p,gesture:navigator.userActivation.isActive};return window.__requestAccess(p);}");
     await page.evaluate("document.querySelector('.download-tray__access').click()",true);
     const retried=await until(async()=>{const list=await jobs();return list.find(job=>job.id!==first.id&&job.id!==blocked.result.id&&job.url===base+'/long.wav'&&job.state==='complete');},'Granting access did not retry the download',20000);
+    assert.deepEqual(await page.evaluate("window.__requested"),{origins:[permissionOrigin],gesture:true},'Native retry must request only the file host with a user gesture');
     assert.deepEqual(await readFile(join(downloads,retried.filename)),fixtures.get('/long.wav').bytes);
     await page.evaluate("chrome.permissions.request=window.__requestAccess;delete window.__requestAccess;delete window.__denyAccess;delete window.__requested");
     await permissionWorker.evaluate("chrome.permissions.contains=globalThis.__allhereContains;delete globalThis.__allhereContains;delete globalThis.__allhereMissing");permissionWorker.close();
@@ -652,12 +649,16 @@ try {
       await delay(1200);
       assert.equal(await read(),undefined,'Opening a webpage must wait for Scan page');
       assert.equal(await live.evaluate('Boolean(globalThis.__allhereFileDropInstalled)'),false,'Unscanned pages must not receive a page helper');
-      await page.evaluate(`(()=>{window.__scanRequests=[];window.__siteRequest=chrome.permissions.request.bind(chrome.permissions);window.__denyScan=true;chrome.permissions.request=options=>{window.__scanRequests.push({...options,gesture:navigator.userActivation.isActive});return window.__denyScan?Promise.resolve(false):window.__siteRequest(options);};})()`);
+      const manifest=await page.evaluate('chrome.runtime.getManifest()');
+      assert.ok(manifest.permissions.includes('activeTab')&&!manifest.permissions.includes('tabs'),'Scans must use activeTab without broad tab metadata access');
+      const productionManifest=JSON.parse(await readFile(resolve('apps/extension/out/manifest.json'),'utf8'));
+      assert.equal(productionManifest.host_permissions,undefined,'Production must not require any website access');
+      await page.evaluate(`(()=>{window.__scanRequests=[];window.__siteRequest=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__scanRequests.push({...options,gesture:navigator.userActivation.isActive});return window.__siteRequest(options);};window.__tabsQuery=chrome.tabs.query.bind(chrome.tabs);window.__hideScanUrl=true;chrome.tabs.query=async options=>{const tabs=await window.__tabsQuery(options);return window.__hideScanUrl?tabs.map(({url,title,favIconUrl,...tab})=>tab):tabs;};})()`);
       await page.evaluate("document.querySelector('.button--scan').click()",true);
-      await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('Access to this site was not granted')"),'Denied scanning needs a retry message');
-      assert.equal(await read(),undefined,'Denied access must not save a capture');
-      assert.deepEqual(await page.evaluate('window.__scanRequests[0]'),{origins:['http://127.0.0.1/*'],gesture:true},'Scan must request only the active site with a user gesture');
-      await page.evaluate('window.__denyScan=false');
+      await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('toolbar icon on this tab')"),'Missing tab access needs toolbar guidance');
+      assert.equal(await read(),undefined,'Missing tab access must not save a capture');
+      assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Scanning must not request persistent site access');
+      await page.evaluate('window.__hideScanUrl=false;chrome.tabs.query=window.__tabsQuery');
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
       const asset=(snapshot,path)=>snapshot.resources.filter(item=>item.url.includes(path));
@@ -724,17 +725,17 @@ try {
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph'&&item.url!==originalGlyph)},'Manual scan did not collect a changed font icon');
       const beforePendingScan=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
-      await page.evaluate("window.__normalScanRequest=chrome.permissions.request;chrome.permissions.request=()=>new Promise(resolve=>{window.__resolveScanAccess=resolve;})");
+      await page.evaluate("window.__normalTabsQuery=chrome.tabs.query.bind(chrome.tabs);window.__scanQueries=0;chrome.tabs.query=options=>++window.__scanQueries===2?new Promise(resolve=>{window.__resolveScanTab=()=>window.__normalTabsQuery(options).then(resolve);}):window.__normalTabsQuery(options)");
       await page.evaluate("document.querySelector('.button--scan').click()",true);
-      await until(()=>page.evaluate("typeof window.__resolveScanAccess==='function'"),'The pending scan did not request access');
+      await until(()=>page.evaluate("typeof window.__resolveScanTab==='function'"),'The pending scan did not check its requested tab');
       const {targetId:otherId}=await browserCdp.send('Target.createTarget',{url:base+'/scan-frame'});
       const otherInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===otherId),'Second tab did not open');
       const other=new Cdp(otherInfo.webSocketDebuggerUrl);await other.ready();
       try {
         await other.send('Page.bringToFront');
-        await page.evaluate("window.__resolveScanAccess(true);chrome.permissions.request=window.__normalScanRequest;delete window.__normalScanRequest;delete window.__resolveScanAccess");
-        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('The active page changed')"),'Switching tabs during permission approval must require a new Scan page click');
-        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforePendingScan,'An old permission approval must not capture the newly active tab');
+        await page.evaluate("window.__resolveScanTab();chrome.tabs.query=window.__normalTabsQuery;delete window.__resolveScanTab");
+        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('The active page changed')"),'Switching tabs during a pending scan must require a new Scan page click');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforePendingScan,'A pending scan must not capture the newly active tab');
         const requestCount=await page.evaluate('window.__scanRequests.length');
         await delay(1800);
         assert.equal(await page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent"),'Live gallery','Tab switches must retain the saved source');
@@ -749,13 +750,39 @@ try {
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),snapshot,'Navigation must not change library storage');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame?next=1')}))`),'Scan page did not collect a navigated page');
+        assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Successful scans must never open a site-access prompt');
+        await page.evaluate("document.querySelector('.library-menu__trigger').click()");
+        assert.equal(await page.evaluate("document.querySelector('.library-menu__panel').textContent.includes('Allow access to this site')"),false,'The menu must not grant persistent scanning access');
+        await page.evaluate("document.querySelector('.library-menu__trigger').click()");
+        const beforeMissingAccess=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+        const ungrantedUrl=base.replace('127.0.0.1','localhost')+'/scan-page';
+        await other.send('Page.navigate',{url:ungrantedUrl});
+        await until(()=>other.evaluate("document.title==='Live gallery'"),'The ungranted host did not load');
+        await until(()=>page.evaluate("chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab])=>tab?.id!==undefined&&!tab.url)"),'Chrome must hide the URL of an ungranted tab without tabs permission');
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('toolbar icon on this tab')"),'Native missing access needs toolbar guidance');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeMissingAccess,'A native inaccessible tab must not create a capture');
+        assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Missing access must never fall back to a persistent scan grant');
+        const pendingUrl=base+'/scan-frame?pending=1';
+        await other.send('Page.navigate',{url:pendingUrl});
+        await until(()=>page.evaluate(`chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab])=>tab?.url===${JSON.stringify(pendingUrl)})`),'The accessible tab did not return');
+        await until(()=>other.evaluate(`document.readyState==='complete'&&location.href===${JSON.stringify(pendingUrl)}`),'The accessible document did not finish loading');
+        await page.evaluate("window.__scanScript=chrome.scripting.executeScript.bind(chrome.scripting);window.__scanPaused=false;chrome.scripting.executeScript=async options=>{const result=await window.__scanScript(options);if(options.func&&!window.__scanPaused){window.__scanPaused=true;return new Promise(resolve=>{window.__returnScan=()=>resolve(result);});}return result;}");
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await until(()=>page.evaluate("typeof window.__returnScan==='function'"),'The pending capture did not reach its completion check');
+        await other.send('Page.navigate',{url:ungrantedUrl});
+        await until(()=>page.evaluate("chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab])=>tab?.id!==undefined&&!tab.url)"),'Cross-site navigation must hide the URL when access is revoked');
+        await page.evaluate("window.__returnScan();chrome.scripting.executeScript=window.__scanScript;delete window.__returnScan");
+        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('page changed while scanning')"),'Lost access during capture must discard the scan');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeMissingAccess,'A stale capture must not be saved after cross-site navigation hides its URL');
+        assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Lost access during a scan must not request persistent host access');
         await page.send('Page.reload');
         await until(()=>page.evaluate("Boolean(document.querySelector('.allhere-shell'))"),'Panel did not reopen');
         const reopened=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         await delay(1600);
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),reopened,'Reopening the panel must not scan');
       } finally {other.close();}
-      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; site-scoped access and denial; opening, tab switches, navigation, and page updates wait for Scan page.`);
+      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; zero scan permission prompts; native missing-tab-access guidance; opening, tab switches, navigation, and page updates wait for Scan page. Functional scans use only a pre-granted fixture host.`);
     } finally {live.close();}
   } else if (dragOnly) {
     const {targetId:destinationId}=await browserCdp.send('Target.createTarget',{url:base+'/destination'});

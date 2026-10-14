@@ -1597,14 +1597,6 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   <button className={`library-menu__item${managementOpen ? " library-menu__item--active" : ""}`} type="button" role="menuitem" disabled={!loaded} onClick={openManagement}>
                     <FileCog size={17} aria-hidden="true" /><span>Manage</span><span className="library-menu__count">{captures.length}</span>
                   </button>
-                  {mode === "extension" && <button className="library-menu__item" type="button" role="menuitem" onClick={() => {
-                    const request = adapter.requestCurrentPageAccess?.() ?? Promise.resolve(false);
-                    setLibraryMenuOpen(false);
-                    libraryMenuTriggerRef.current?.focus();
-                    void request.then(granted => {
-                      setNotice(granted ? "Access to this site is enabled. Click Scan page to collect its resources." : "Website access was not granted. Click Scan page to try again.");
-                    }).catch(error => setNotice(error.message));
-                  }}><ShieldCheck size={17} aria-hidden="true" /><span>Allow access to this site</span></button>}
                 </div>
               )}
             </div>
@@ -1762,7 +1754,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span>Scans only when you click Scan page</span></span>
+              <span className="page-scope__label">Source page <span title="On each new tab, click Allhere's toolbar icon before choosing Scan page.">Toolbar icon first, then Scan page</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"
@@ -1881,7 +1873,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <h2>Your library starts with a page</h2>
                     <p>
                       {mode === "extension"
-                        ? "Scan this page to collect its images, icons, fonts, links, media, and files."
+                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files."
                         : "Capture resources in the Chrome side panel, then import your library here."}
                     </p>
                     {mode === "extension" ? (

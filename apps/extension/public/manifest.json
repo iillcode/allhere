@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Allhere — Web resource library",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Collect and review images, links, media, and file URLs from the pages you visit.",
   "minimum_chrome_version": "114",
   "icons": {
@@ -10,13 +10,13 @@
     "48": "icons/allhere-48.png",
     "128": "icons/allhere-128.png"
   },
-  "permissions": ["tabs", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
+  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Open Allhere",
+    "default_title": "Open Allhere for this tab",
     "default_icon": {
       "16": "icons/allhere-16.png",
       "32": "icons/allhere-32.png"

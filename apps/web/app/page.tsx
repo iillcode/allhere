@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 const questions = [
   { question: "What does Scan page collect?", answer: "Allhere gathers the resource addresses it can access on the current page: images, icons, fonts, links, video and audio, and files. Each resource stays associated with its source page. Some embedded or protected resources may not be accessible." },
-  { question: "Does Allhere scan pages automatically?", answer: "No. Choose Scan page to collect the active webpage. Opening the panel, switching tabs, navigating, or changes to page content do not start a scan. Chrome may ask you to allow access to that site when you scan it for the first time. Collections stay in your browser's local extension storage." },
+  { question: "Does Allhere scan pages automatically?", answer: "No. Click Allhere's toolbar icon on the webpage, then choose Scan page. On a new tab or after moving to a different site, click the toolbar icon again before scanning. Scanning uses temporary tab access and does not show a site-access prompt. Opening the panel, switching tabs, navigating, and page changes do not start a scan. Collections stay in your browser's local extension storage." },
   { question: "Where is my collection stored?", answer: "Your collection is stored locally in the browser or extension where you created it. The extension and web library have separate storage. Export a JSON archive to keep a backup or move a collection between them; they don’t sync automatically." },
   { question: "Does a link signal mean a destination is safe?", answer: "No. Allhere checks visible URL patterns on your device and explains clues that may deserve a closer look. These local heuristics are context, not a safety guarantee or an external reputation check." },
   { question: "How do I install the Chrome extension?", answer: "Allhere is currently a developer preview for desktop Chrome 114 or later. Download the ZIP, extract it, turn on Developer mode in Chrome’s extensions page, and choose Load unpacked to select the extracted folder.", setup: true },
@@ -72,7 +72,7 @@ export default function HomePage() {
           <div className={styles.container}>
             <div className={styles.sectionHeading}><h2 id="workflow-title">From a page to a collection.<br /><span>Without the busywork.</span></h2><p>A simple rhythm for all the things you want to come back to.</p></div>
             <ol className={styles.steps}>
-              <li><div className={styles.stepTop}><span>1</span><Icon name="scan" /></div><h3>Find something interesting.</h3><p>Open Allhere beside a webpage and choose <strong>Scan page</strong>. Allow access to that site when Chrome asks, then collect its available resource URLs.</p></li>
+              <li><div className={styles.stepTop}><span>1</span><Icon name="scan" /></div><h3>Find something interesting.</h3><p>Click Allhere’s toolbar icon on the webpage, then choose <strong>Scan page</strong> to collect its available resource URLs. On a new tab, click the toolbar icon again before scanning.</p></li>
               <li><div className={styles.stepTop}><span>2</span><Icon name="grid" /></div><h3>Let the collection take shape.</h3><p>Browse by type, search what you’ve found, and inspect the details. The original source stays close at hand.</p></li>
               <li><div className={styles.stepTop}><span>3</span><Icon name="bookmark" /></div><h3>Keep what matters.</h3><p>Save useful finds. Open, copy, or download a resource when it’s time to bring it into your next piece of work.</p></li>
             </ol>

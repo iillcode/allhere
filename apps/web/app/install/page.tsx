@@ -77,9 +77,12 @@ export default function InstallPage() {
           >
             <h2 id="install-next-title">Start with the page you are on.</h2>
             <p>
-              Open Allhere from the Chrome toolbar and choose{" "}
+              Click Allhere’s icon in the Chrome toolbar and choose{" "}
               <strong>Scan page</strong> to collect the active webpage.
-              Allow access to that site if Chrome asks. Each new page waits
+              On a new tab or after moving to a different site, click the toolbar
+              icon again before scanning. Scanning uses temporary tab access
+              and does not ask for a persistent site grant. File actions may
+              ask for access to the selected resources’ hosts. Each new page waits
               until you choose Scan page; opening the panel or switching tabs
               does not collect its resources. The extension
               library and the web library keep separate local collections; use
