@@ -15,13 +15,14 @@ export default function PrivacyPage() {
         {
           title: "What Allhere does",
           paragraphs: [
-            "Allhere helps you collect and organize resources from webpages in a local library. Click Allhere's toolbar icon on a webpage, then choose Scan page to start a scan. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Opening the extension panel, switching tabs, navigating, or changes to page content do not start a scan. Choose Scan page again whenever you want to refresh a page's collection.",
+            "Allhere helps you collect and organize resources from webpages in a local library. Click Allhere's toolbar icon on a webpage, then choose Scan page to start a scan. After a successful scan, the button reads Scan again so you can manually refresh that page's collection. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Opening the extension panel, switching tabs, navigating, or changes to page content do not start a scan.",
             "After a requested scan, a small helper supports file drag and drop on that page. It may remain until the page closes or navigates, but it does not watch for page-resource changes or start scans. Chrome does not allow Allhere to scan restricted browser pages.",
           ],
         },
         {
           title: "Information Allhere uses",
           paragraphs: [
+            "While the extension panel is open, Allhere uses tab metadata that Chrome makes available, including the active tab's address, title, favicon, and loading state, to display its site icon and indicate when a manual scan is needed. Tab changes and navigation update this indicator without scanning page content. This temporary interface state is not saved as a browsing log. Chrome may withhold the site icon and address until you click Allhere's toolbar icon or have already allowed access to that host.",
             "A scan can save the source page's URL, title, hostname, and favicon, together with resource URLs, names, descriptions, types, dimensions, and other details needed to show and organize images, icons, fonts, links, media, and files. Some inline SVGs, generated icon previews, and temporary page images are stored as image data so they remain available after the page closes. URLs or page content can contain personal information; consider this before scanning a page or exporting a collection.",
             "Allhere also stores your saved-item choices, deleted-page exclusions, and recent download status and filenames. It uses page and resource URLs to show your library and to calculate local link signals. It does not intentionally read passwords, form-field values, or cookies.",
           ],
@@ -36,7 +37,7 @@ export default function PrivacyPage() {
         {
           title: "Network requests and sharing",
           paragraphs: [
-            "During a scan, Allhere may request an SVG sprite or page-generated image needed for a usable preview. Loading a preview, checking a resource, or downloading a file may also contact the resource's original website or image host. That host receives the normal network information associated with the request. When you drag a resource into a website's upload field, that website receives the file you choose to drop. Copying a URL places it on your device's clipboard.",
+            "Displaying the current tab's favicon can request that icon from its original host; Allhere does not use a third-party favicon lookup service. During a scan, Allhere may request an SVG sprite or page-generated image needed for a usable preview. Loading a preview, checking a resource, or downloading a file may also contact the resource's original website or image host. That host receives the normal network information associated with the request. When you drag a resource into a website's upload field, that website receives the file you choose to drop. Copying a URL places it on your device's clipboard.",
             "Allhere does not sell your library data, send it to an advertising or analytics service, or allow its developer to read your local collection. Link signals are calculated locally; Allhere does not send URLs to an external reputation service.",
             "Visiting the Allhere website sends ordinary connection information, such as your IP address and browser details, to its hosting provider to deliver the site. The website does not receive your local library collection unless you separately choose to share it.",
           ],
@@ -44,7 +45,7 @@ export default function PrivacyPage() {
         {
           title: "Website access and limited use",
           paragraphs: [
-            "Clicking Allhere's toolbar icon gives it Chrome's temporary activeTab access to that tab. This access lasts while the tab stays on the same site and ends when the tab closes or navigates to a different site. The extension reads the active page's URL when you choose Scan page and does not ask you to grant persistent website access for a scan. A host grant you previously allowed for a file action may also make a page on that host accessible. Every scan still requires Scan page; access alone does not start a scan.",
+            "Clicking Allhere's toolbar icon gives it Chrome's temporary activeTab access to that tab. This access lasts while the tab stays on the same site and ends when the tab closes or navigates to a different site. The extension uses available tab metadata for its scan button and reads page resources only when you choose Scan page. It does not ask you to grant persistent website access for a scan. A host grant you previously allowed for a file action may also make a page on that host accessible. Every scan still requires Scan page; access alone does not start a scan.",
             "Downloading, copying an icon as SVG, preparing a file to drag, or creating a ZIP may ask for access to the original hosts of the selected resources. A bulk action can request the hosts of all resources you selected. Allhere requires no access to all websites when installed and does not request a wildcard grant to all websites. Chrome remembers optional host grants until you remove them in the extension's site-access settings. Allhere also uses browser storage, downloads, and the side panel to provide the library and file actions you choose.",
             "Allhere's use of information received from Chrome APIs adheres to the Chrome Web Store User Data Policy, including the Limited Use requirements. That information is used only to provide or improve the features described here and is not used for personalized advertising or sold to third parties.",
           ],

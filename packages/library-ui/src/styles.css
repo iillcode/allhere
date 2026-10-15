@@ -87,7 +87,8 @@ a { color: inherit; text-decoration: none; }
 .topbar__brand-cluster { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .topbar__menu { display: none !important; }
 .brand { display: inline-flex; align-items: center; gap: 11px; min-width: 0; }
-.brand__mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; color: var(--blue); background: var(--blue-pale); }
+.brand__mark { display: grid; width: 36px; height: 36px; place-items: center; }
+.brand__mark img { display: block; width: 100%; height: 100%; }
 .brand__word { color: #3c4043; font-size: 21px; font-weight: 500; letter-spacing: -.035em; }
 
 .searchbox {
@@ -197,6 +198,10 @@ a { color: inherit; text-decoration: none; }
 .button--preview-active { border-color: #a8c7fa; background: var(--surface-selected); }
 .button--disabled { color: var(--ink-muted); background: var(--surface-hover); }
 .button--scan { padding-inline: 18px; }
+.button--scan-needed { border-color: var(--amber); color: var(--amber); background: var(--amber-bg); }
+.button--scan-needed:hover:not(:disabled) { background: color-mix(in srgb, var(--amber) 8%, var(--amber-bg)); }
+.scan-favicon { display: inline-grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border-radius: 50%; color: var(--ink-muted); background: var(--surface); }
+.scan-favicon img { display: block; width: 16px; height: 16px; object-fit: contain; }
 .icon-button {
   display: inline-grid;
   width: 40px;
@@ -647,8 +652,7 @@ a { color: inherit; text-decoration: none; }
 .allhere-shell--extension { min-height: 100vh; }
 .allhere-shell--extension .topbar { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 64px; padding: 0 0 0 8px; }
 .allhere-shell--extension .brand__word { font-size: 19px; }
-.allhere-shell--extension .brand__mark { width: 36px; height: 36px; border-radius: 8px; background: transparent; }
-.allhere-shell--extension .brand__mark img { display: block; width: 100%; height: 100%; border-radius: inherit; }
+.allhere-shell--extension .brand__mark { width: 36px; height: 36px; }
 .allhere-shell--extension .searchbox { display: none; }
 .allhere-shell--extension .topbar__actions { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; gap: 5px; }
 .allhere-shell--extension .topbar__export { display: none; }
@@ -747,7 +751,7 @@ a { color: inherit; text-decoration: none; }
   .topbar__brand-cluster { gap: 5px; }
   .topbar__menu { display: inline-grid !important; width: 34px; height: 34px; }
   .brand { gap: 8px; }
-  .brand__mark { width: 31px; height: 31px; border-radius: 10px; }
+  .brand__mark { width: 31px; height: 31px; }
   .brand__word { font-size: 19px; }
   .searchbox { grid-column: 1 / 4; grid-row: 2; width: 100%; max-width: none; height: 42px; }
   .topbar__actions { grid-column: 3; grid-row: 1; }

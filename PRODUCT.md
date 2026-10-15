@@ -36,7 +36,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 ## Brand Commitments
 
-Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Allhere and uses its existing extension mark.
+Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Allhere and uses a freeform blue lowercase a monogram with a transparent background and no surrounding square.
 
 ## Evidence on Hand
 

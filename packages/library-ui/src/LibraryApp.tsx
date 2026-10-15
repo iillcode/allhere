@@ -36,7 +36,6 @@ import {
   Menu,
   MoreVertical,
   Music2,
-  PanelLeft,
   Search,
   Shapes,
   ShieldAlert,
@@ -71,6 +70,8 @@ import { convertImageDownload, originalDownloadFormats, type DownloadFormats, ty
 import { iconNeedsDarkBackground } from "./iconContrast";
 import { loadResourceFile } from "./resourceFiles";
 import { useResourceDrag } from "./useResourceDrag";
+import { useActivePage } from "./useActivePage";
+import { TabFavicon } from "./TabFavicon";
 import { sampleCaptures } from "./sample";
 import { LibraryManager } from "./LibraryManager";
 import { DownloadTray } from "./DownloadTray";
@@ -710,6 +711,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const [resourceActionId, setResourceActionId] = useState<string | null>(null);
   const [downloadFormats, setDownloadFormats] = useState<DownloadFormats>(originalDownloadFormats);
   const downloads = useDownloads(mode === "extension");
+  const activePage = useActivePage(adapter);
   const resourceActionInFlight = useRef(false);
   const resourceDrag = useResourceDrag(filenameForResource, setNotice);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -986,11 +988,13 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setBusy(true);
     setNotice("");
     try {
-      const capture = await adapter.captureCurrentPage();
+      const startedPage = await activePage.beginScan();
+      const capture = await adapter.captureCurrentPage(startedPage);
       if (sequence !== captureSequenceRef.current) return;
       const { savedCapture } = await saveCapture(capture, sequence);
       if (sequence !== captureSequenceRef.current) return;
       if (!savedCapture) return;
+      await activePage.finishScan(startedPage, capture.pageUrl);
       if (!savedOnly) {
         setSelectedCaptureId(savedCapture.id);
         setSelected(null);
@@ -1518,7 +1522,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           </button>
           <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Allhere library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
             <span className="brand__mark" aria-hidden="true">
-              {mode === "extension" ? <img src="/icons/allhere.svg" alt="" /> : <PanelLeft size={19} strokeWidth={2.2} />}
+              <img src="/icons/allhere.svg" alt="" />
             </span>
             <span className="brand__word">allhere</span>
           </a>
@@ -1545,9 +1549,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
             <ArrowDownToLine size={19} />
           </button>
           {mode === "extension" ? (
-            <button className="button button--primary button--scan" type="button" aria-label="Scan this page" onClick={() => void handleCapture()} disabled={busy || !loaded}>
-              {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <Activity size={17} aria-hidden="true" />}
-              <span>{busy ? "Scanning…" : "Scan page"}</span>
+            <button
+              className={`button button--primary button--scan${activePage.needsScan ? " button--scan-needed" : ""}`}
+              type="button" aria-label="Scan this page"
+              data-scan-state={busy ? "scanning" : activePage.needsScan ? "needed" : "ready"}
+              title={activePage.needsScan ? "This tab needs a scan. Click Allhere's toolbar icon first if access is needed." : "This page has been scanned. Scan again to refresh its resources."}
+              onClick={() => void handleCapture()} disabled={busy || !loaded}
+            >
+              {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <TabFavicon key={`${activePage.page.tabId}:${activePage.page.revision}`} url={activePage.page.faviconUrl} />}
+              <span>{busy ? "Scanning…" : activePage.needsScan ? "Scan page" : "Scan again"}</span>
             </button>
           ) : (
             <button className="button button--primary" aria-label="Import library" onClick={handleImportClick} disabled={busy}>

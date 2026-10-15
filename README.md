@@ -1,6 +1,6 @@
 # Allhere
 
-Allhere is a local-first web resource library with a Chrome side panel. Scanning starts only when the user chooses **Scan page**. Opening the panel, switching tabs, navigating, and page updates leave the saved collection unchanged. The scanner collects image, link, media, embedded file, stylesheet, and script URLs. The web library and extension use the same archive format.
+Allhere is a local-first web resource library with a Chrome side panel. Scanning starts only when the user chooses **Scan page**, or **Scan again** after a successful scan. Opening the panel, switching tabs, navigating, and page updates leave the saved collection unchanged. The scanner collects image, link, media, embedded file, stylesheet, and script URLs. The web library and extension use the same archive format.
 
 ## Workspace
 
@@ -33,6 +33,10 @@ The extension uses a separate static React bundle because Manifest V3 blocks inl
 Click Allhere's toolbar icon on the webpage, then choose **Scan page**. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. The extension uses `activeTab` for temporary access to the invoked tab, plus `scripting`, `sidePanel`, `storage`, `unlimitedStorage`, `downloads`, and `alarms`. It does not use the broad `tabs` metadata permission. Scanning never calls the website permission request API. HTTP/HTTPS host permissions remain optional for file actions, which request only the selected resources' original hosts. A host grant already allowed for a file action may also make a page on that host accessible. No action requests wildcard access to every site. The drop handler is injected into accessible webpages and frames after a requested scan; it does not monitor resource changes. Security checks remain local; URLs are not sent to a reputation provider.
 
 ## Manage your library
+
+The canonical logo is `apps/extension/public/icons/allhere.svg`. After changing it, run `pnpm generate:brand` to sync the website mark, generate transparent 16/32/48/128px extension icons, and refresh the store promo artwork.
+
+The scan button displays the active tab's favicon when Chrome makes it available, with a globe fallback. Amber **Scan page** means the current tab or document needs a manual scan; blue **Scan again** means it has been scanned during this panel session. Reloading or navigating a page returns the button to amber without scanning. Tab metadata is kept only in memory for this interface, and no extra `tabs` permission is requested.
 
 Open the menu at the right of **Scan page** and choose **Manage**. Search captured pages, select pages to delete, or open a page to select and delete individual items. **Undo** restores the most recent deletion while the library remains open. Deleted pages and items remain deleted when tabs change or the panel reopens. An explicit **Scan page** action restores resources from the current page; importing a page also restores it.
 

@@ -121,6 +121,11 @@ try {
     await page.evaluate("document.querySelector('.button--scan').click()", true);
     await until(() => page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
     sourcePage.close();
+    await until(() => page.evaluate("document.querySelector('.button--scan')?.dataset.scanState === 'ready'"), "The scan button did not confirm the current page.");
+    // A real side panel stays beside its source tab. This headless harness uses
+    // an extension tab: retain Chrome's source metadata while foregrounding it
+    // for reliable screenshots, without changing capture or stored resources.
+    await page.evaluate("(async()=>{const query=chrome.tabs.query.bind(chrome.tabs);const source=await query({active:true,currentWindow:true});chrome.tabs.query=options=>options.currentWindow?Promise.resolve(source):query(options);})()");
     await page.send("Page.bringToFront");
   } else {
     await until(() => page.evaluate("document.body.innerText.includes('The activeTab permission')"), "The side panel demo did not load its sample resources.");

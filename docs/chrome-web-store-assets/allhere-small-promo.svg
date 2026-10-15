@@ -17,13 +17,8 @@
   <circle cx="438" cy="286" r="158" fill="#3081ec" opacity=".35"/>
   <path d="M0 236c96-50 196-53 298-10s118 32 142 16" fill="none" stroke="#8bc0ff" stroke-opacity=".22" stroke-width="2"/>
 
-  <rect x="35" y="62" width="154" height="156" rx="26" fill="#fff" filter="url(#shadow)"/>
-  <g transform="translate(62 89) scale(.78)">
-    <rect width="128" height="128" rx="28" fill="#0b57d0"/>
-    <rect x="25" y="26" width="78" height="76" rx="12" fill="none" stroke="#fff" stroke-width="9"/>
-    <path d="M54 30v68" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="9"/>
-    <circle cx="78" cy="51" r="6" fill="#fff"/>
-    <path d="M70 77h17" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="8"/>
+  <g id="allhere-mark" transform="translate(39 66) scale(2.35)">
+    <path d="M45 31c0-11.5-7.5-20-18-20S8 19.5 8 31s8.5 21 19 21 18-9.5 18-21V11m0 20v12c0 7 3 10 10 10" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
   <g filter="url(#shadow)">

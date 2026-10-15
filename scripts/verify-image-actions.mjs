@@ -82,7 +82,7 @@ const server = createServer((request, response) => {
     const send=()=>{if(response.destroyed)return;const next=Math.min(offset+32768,end+1);response.write(fixture.bytes.subarray(offset,next));offset=next;if(offset>end)response.end();else setTimeout(send,fixture.slow);};
     send();return;
   }
-  response.writeHead(fixture.status ?? 200, { "Content-Type": fixture.type, "Cross-Origin-Resource-Policy": "same-origin", "Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Disposition", ...fixture.headers });
+  response.writeHead(fixture.status ?? 200, { "Content-Type": fixture.type, "Cross-Origin-Resource-Policy": "same-origin", ...(fixture.cors === false ? {} : { "Access-Control-Allow-Origin": "*" }), "Access-Control-Expose-Headers": "Content-Disposition", ...fixture.headers });
   response.end(fixture.bytes);
 });
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
@@ -204,7 +204,9 @@ try {
       <div id="shadow-host"></div><iframe title="Asset frame" src="/scan-frame"></iframe>
       <script>const root=document.querySelector('#shadow-host').attachShadow({mode:'open'});root.innerHTML='<img src="/shadow.png" alt="Shadow image"><svg aria-label="Shadow icon" width="24" height="24"><circle cx="12" cy="12" r="9"/></svg>';
       fetch('/negotiated.jpg').then(response=>response.blob()).then(blob=>{const photo=new Image();photo.alt='Blob image';photo.src=URL.createObjectURL(blob);document.body.append(photo)});</script>`)});
-    fixtures.set('/scan-frame',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Asset frame</title><img src="/frame.png" alt="Frame image"><svg aria-label="Frame icon" width="24" height="24"><rect width="20" height="20"/></svg>')});
+    fixtures.set('/frame-favicon.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#188038"/></svg>')});
+    fixtures.set('/cdn-favicon.png',{type:'image/png',bytes:png,cors:false,headers:{'Cross-Origin-Resource-Policy':'cross-origin'}});
+    fixtures.set('/scan-frame',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Asset frame</title><link rel="icon" href="/frame-favicon.svg"><img src="/frame.png" alt="Frame image"><svg aria-label="Frame icon" width="24" height="24"><rect width="20" height="20"/></svg>')});
     for(const path of ['/first.png','/lazy.png','/same.png','/wall.png','/pseudo.png','/shadow.png','/frame.png','/late.png','/late2.png'])fixtures.set(path,{type:'image/png',bytes:png});
     fixtures.set('/mask.svg',{type:'image/svg+xml',bytes:Buffer.from(inlineSvg)});
     fixtures.set('/sprites.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><symbol id="one"><path d="M0 0h12v12H0z"/></symbol><symbol id="two"><circle r="6" cx="6" cy="6"/></symbol></svg>')});
@@ -646,7 +648,40 @@ try {
     try {
       await live.send('Page.bringToFront');
       const read=()=>page.evaluate(`(async()=>{const data=await chrome.storage.local.get('allhere.library.v1');return data['allhere.library.v1'].find(c=>c.pageUrl===${JSON.stringify(base+'/scan-page')});})()`);
+      const scanState=()=>page.evaluate("document.querySelector('.button--scan')?.dataset.scanState");
+      const expectScanState=(state)=>until(async()=>await scanState()===state,`The scan button must show ${state}`);
+      const expectFavicon=async(path)=>{
+        const expected=path.startsWith('http')?path:base+path;
+        try { return await until(()=>page.evaluate(`(()=>{const image=document.querySelector('.scan-favicon img');return image?.dataset.faviconUrl===${JSON.stringify(expected)}&&image.complete&&image.naturalWidth>0;})()`),`The scan button did not display ${path}`); }
+        catch(error){ console.log(await page.evaluate("chrome.tabs.query({active:true,currentWindow:true}).then(tabs=>({tabs,icon:document.querySelector('.scan-favicon')?.outerHTML}))"));throw error; }
+      };
+      const recordScanState=async(state)=>{
+        await mkdir(resolve('.impeccable/review'),{recursive:true});
+        // A real side panel never becomes the active browser tab. The headless
+        // fixture uses an extension tab, so retain source metadata only while
+        // foregrounding that tab for compositor screenshots. Behavior checks
+        // before and after this block use Chrome's actual active tab.
+        await page.evaluate("(async()=>{window.__shotTabsQuery=chrome.tabs.query.bind(chrome.tabs);const tabs=await window.__shotTabsQuery({active:true,currentWindow:true});chrome.tabs.query=options=>options.currentWindow?Promise.resolve(tabs):window.__shotTabsQuery(options);})()");
+        try {
+          await page.send('Page.bringToFront');
+          for(const width of [320,390,720]){
+            await page.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
+            await page.evaluate('window.scrollTo(0,0)');
+            const layout=await page.evaluate("(()=>{const menu=document.querySelector('.library-menu__trigger').getBoundingClientRect();return {fits:document.documentElement.scrollWidth<=innerWidth,menuRight:menu.right,width:document.querySelector('.topbar').getBoundingClientRect().right}})()");
+            assert.ok(layout.fits&&Math.abs(layout.menuRight-layout.width)<=1,`Header must fit and keep the menu at the outer edge: ${JSON.stringify(layout)}`);
+            const shot=await page.send('Page.captureScreenshot',{format:'png'});
+            await writeFile(resolve(`.impeccable/review/scan-${state}-${width}.png`),Buffer.from(shot.data,'base64'));
+          }
+        } finally {
+          await live.send('Page.bringToFront');
+          await page.evaluate('chrome.tabs.query=window.__shotTabsQuery;delete window.__shotTabsQuery');
+          await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:800,deviceScaleFactor:1,mobile:false});
+        }
+      };
       await delay(1200);
+      await expectScanState('needed');
+      await expectFavicon('/favicon.ico');
+      await recordScanState('needed');
       assert.equal(await read(),undefined,'Opening a webpage must wait for Scan page');
       assert.equal(await live.evaluate('Boolean(globalThis.__allhereFileDropInstalled)'),false,'Unscanned pages must not receive a page helper');
       const manifest=await page.evaluate('chrome.runtime.getManifest()');
@@ -661,6 +696,16 @@ try {
       await page.evaluate('window.__hideScanUrl=false;chrome.tabs.query=window.__tabsQuery');
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
+      await expectScanState('ready');
+      assert.equal(await page.evaluate("document.querySelector('.button--scan span:last-child').textContent"),'Scan again','Successful scans need a text indication as well as color');
+      await recordScanState('ready');
+      const cdnIcon=base.replace('127.0.0.1','localhost')+'/cdn-favicon.png';
+      await live.evaluate(`document.querySelector('link[rel=icon]').href=${JSON.stringify(cdnIcon)}`);
+      await expectFavicon(cdnIcon);
+      await expectScanState('ready');
+      assert.equal(await page.evaluate(`chrome.permissions.contains({origins:[${JSON.stringify(base.replace('127.0.0.1','localhost')+'/*')}]})`),false,'A CDN favicon must not add host access');
+      await live.evaluate("document.querySelector('link[rel=icon]').href='/favicon.ico'");
+      await expectFavicon('/favicon.ico');
       const asset=(snapshot,path)=>snapshot.resources.filter(item=>item.url.includes(path));
       assert.ok(asset(initial,'/first.png').length===1 && asset(initial,'/lazy.png').length===1,'Loaded and lazy images should both be kept');
       assert.ok(asset(initial,'/shadow.png').length===1 && asset(initial,'/frame.png').length===1,'Shadow DOM and frame images should be kept');
@@ -725,7 +770,7 @@ try {
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph'&&item.url!==originalGlyph)},'Manual scan did not collect a changed font icon');
       const beforePendingScan=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
-      await page.evaluate("window.__normalTabsQuery=chrome.tabs.query.bind(chrome.tabs);window.__scanQueries=0;chrome.tabs.query=options=>++window.__scanQueries===2?new Promise(resolve=>{window.__resolveScanTab=()=>window.__normalTabsQuery(options).then(resolve);}):window.__normalTabsQuery(options)");
+      await page.evaluate("window.__normalTabsQuery=chrome.tabs.query.bind(chrome.tabs);window.__scanQueries=0;chrome.tabs.query=options=>options.lastFocusedWindow&&++window.__scanQueries===2?new Promise(resolve=>{window.__resolveScanTab=()=>window.__normalTabsQuery(options).then(resolve);}):window.__normalTabsQuery(options)");
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       await until(()=>page.evaluate("typeof window.__resolveScanTab==='function'"),'The pending scan did not check its requested tab');
       const {targetId:otherId}=await browserCdp.send('Target.createTarget',{url:base+'/scan-frame'});
@@ -735,6 +780,13 @@ try {
         await other.send('Page.bringToFront');
         await page.evaluate("window.__resolveScanTab();chrome.tabs.query=window.__normalTabsQuery;delete window.__resolveScanTab");
         await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('The active page changed')"),'Switching tabs during a pending scan must require a new Scan page click');
+        await expectScanState('needed');
+        await expectFavicon('/frame-favicon.svg');
+        await live.send('Page.bringToFront');
+        await expectScanState('ready');
+        await expectFavicon('/favicon.ico');
+        await other.send('Page.bringToFront');
+        await expectScanState('needed');
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforePendingScan,'A pending scan must not capture the newly active tab');
         const requestCount=await page.evaluate('window.__scanRequests.length');
         await delay(1800);
@@ -743,10 +795,19 @@ try {
         assert.equal(await page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame')}))`),false,'A new tab must wait for Scan page');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Asset frame'"),'Scan page did not collect the newly active tab');
+        await expectScanState('ready');
+        const beforeReload=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+        await other.send('Page.reload');
+        await until(()=>other.evaluate("document.readyState==='complete'"),'Reload did not finish');
+        await expectScanState('needed');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeReload,'Reloading must only change the scan indicator');
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await expectScanState('ready');
         assert.equal(await page.evaluate("document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab')"),'images','Tab switch reset the selected section');
         const snapshot=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         await other.send('Page.navigate',{url:base+'/scan-frame?next=1'});
         await delay(1800);
+        await expectScanState('needed');
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),snapshot,'Navigation must not change library storage');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame?next=1')}))`),'Scan page did not collect a navigated page');
@@ -754,11 +815,23 @@ try {
         await page.evaluate("document.querySelector('.library-menu__trigger').click()");
         assert.equal(await page.evaluate("document.querySelector('.library-menu__panel').textContent.includes('Allow access to this site')"),false,'The menu must not grant persistent scanning access');
         await page.evaluate("document.querySelector('.library-menu__trigger').click()");
+        const beforeReloadDuringScan=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
+        await page.evaluate("window.__reloadScript=chrome.scripting.executeScript.bind(chrome.scripting);chrome.scripting.executeScript=async options=>{const result=await window.__reloadScript(options);if(options.func){return new Promise(resolve=>{window.__returnBeforeReload=()=>resolve(result);});}return result;}");
+        await page.evaluate("document.querySelector('.button--scan').click()",true);
+        await until(()=>page.evaluate("typeof window.__returnBeforeReload==='function'"),'The scan did not reach the reload checkpoint');
+        await other.send('Page.reload');
+        await until(()=>other.evaluate("document.readyState==='complete'"),'The same-URL reload did not finish');
+        await page.evaluate("window.__returnBeforeReload();chrome.scripting.executeScript=window.__reloadScript;delete window.__returnBeforeReload");
+        await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('page changed while scanning')"),'Reloading during a scan must discard the old document');
+        await expectScanState('needed');
+        assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeReloadDuringScan,'Reloading during a scan must not save stale content');
         const beforeMissingAccess=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         const ungrantedUrl=base.replace('127.0.0.1','localhost')+'/scan-page';
         await other.send('Page.navigate',{url:ungrantedUrl});
         await until(()=>other.evaluate("document.title==='Live gallery'"),'The ungranted host did not load');
         await until(()=>page.evaluate("chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab])=>tab?.id!==undefined&&!tab.url)"),'Chrome must hide the URL of an ungranted tab without tabs permission');
+        await expectScanState('needed');
+        await until(()=>page.evaluate("Boolean(document.querySelector('.scan-favicon svg'))&&!document.querySelector('.scan-favicon img')"),'Missing tab access must show the neutral globe');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate("document.querySelector('.notice')?.textContent.includes('toolbar icon on this tab')"),'Native missing access needs toolbar guidance');
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeMissingAccess,'A native inaccessible tab must not create a capture');
@@ -782,7 +855,7 @@ try {
         await delay(1600);
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),reopened,'Reopening the panel must not scan');
       } finally {other.close();}
-      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; zero scan permission prompts; native missing-tab-access guidance; opening, tab switches, navigation, and page updates wait for Scan page. Functional scans use only a pre-granted fixture host.`);
+      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; current-tab favicons and globe fallback; amber/blue states across scans, tab switches, same-URL reloads and navigation; 320/390/720px header fits; zero scan permission prompts. Functional scans use only a pre-granted fixture host.`);
     } finally {live.close();}
   } else if (dragOnly) {
     const {targetId:destinationId}=await browserCdp.send('Target.createTarget',{url:base+'/destination'});

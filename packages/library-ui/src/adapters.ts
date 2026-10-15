@@ -8,6 +8,7 @@ import {
   type ResourceKind,
 } from "@allhere/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
+import { createActivePageObserver, type ActivePage, type ActivePageBrowser } from "./activePage";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
@@ -15,7 +16,9 @@ export type LibraryAdapter = {
   subscribe: (listener: (captures: PageCapture[]) => void) => () => void;
   loadExclusions?: () => Promise<CaptureExclusions>;
   subscribeExclusions?: (listener: (exclusions: CaptureExclusions) => void) => () => void;
-  captureCurrentPage?: () => Promise<PageCapture>;
+  captureCurrentPage?: (requestedPage?: ActivePage) => Promise<PageCapture>;
+  getActivePage?: () => Promise<ActivePage>;
+  subscribeActivePage?: (listener: (page: ActivePage) => void) => () => void;
 };
 
 type RawResource = {
@@ -38,7 +41,7 @@ type RawPageScan = {
 
 type StorageChange = { newValue?: unknown };
 
-type ChromeLike = {
+type ChromeLike = ActivePageBrowser & {
   storage?: {
     local?: {
       get: (key: string) => Promise<Record<string, unknown>>;
@@ -52,11 +55,6 @@ type ChromeLike = {
         listener: (changes: Record<string, StorageChange>, areaName: string) => void,
       ) => void;
     };
-  };
-  tabs?: {
-    query: (query: { active: boolean; lastFocusedWindow: boolean }) => Promise<
-      Array<{ id?: number; url?: string }>
-    >;
   };
   scripting?: {
     executeScript: (options: {
@@ -134,6 +132,7 @@ export function createWebAdapter(): LibraryAdapter {
 }
 
 export function createExtensionAdapter(): LibraryAdapter {
+  const activePages = createActivePageObserver(chromeApi);
   const activePage = async () => {
     const api = chromeApi();
     if (!api?.tabs || !api.scripting) throw new Error("Capture is available from the installed Chrome side panel.");
@@ -160,6 +159,8 @@ export function createExtensionAdapter(): LibraryAdapter {
   };
 
   return {
+    getActivePage: activePages.getActivePage,
+    subscribeActivePage: activePages.subscribeActivePage,
     load,
     loadExclusions: async () => {
       const storage = chromeApi()?.storage?.local;
@@ -195,10 +196,14 @@ export function createExtensionAdapter(): LibraryAdapter {
       changes.addListener(handler);
       return () => changes.removeListener(handler);
     },
-    captureCurrentPage: async () => {
+    captureCurrentPage: async (requestedPage) => {
       const { api, tab } = await activePage();
+      const revision = activePages.getRevision(tab.id);
+      if (requestedPage && (requestedPage.tabId !== tab.id || requestedPage.url !== tab.url || requestedPage.revision !== revision)) {
+        throw new Error("The active page changed. Click Allhere's toolbar icon on the page you want to collect, then choose Scan page.");
+      }
       const [requestedTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
-      if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url) {
+      if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url || activePages.getRevision(tab.id) !== revision) {
         throw new Error("The active page changed. Click Allhere's toolbar icon on the page you want to collect, then choose Scan page.");
       }
 
@@ -236,7 +241,7 @@ export function createExtensionAdapter(): LibraryAdapter {
         // drag helper can be installed.
       }
       const [currentTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
-      if (currentTab?.id !== tab.id || currentTab.url !== scan.pageUrl) {
+      if (currentTab?.id !== tab.id || currentTab.url !== scan.pageUrl || activePages.getRevision(tab.id) !== revision) {
         throw new Error("The page changed while scanning. Click Allhere's toolbar icon on the current tab, then choose Scan page.");
       }
 

@@ -211,11 +211,16 @@ Depth is mostly structural: white cards sit on the white canvas with a fine bord
 
 ## Shapes
 
+The Allhere mark is a bold, freeform lowercase a in Drive blue, with a curved terminal and transparent background. It has no square container in the application, browser toolbar, website, or store artwork. The source SVG generates the PNG icon sizes; the 128px store icon retains a transparent safety margin.
+
 Controls use generous pill silhouettes: the search field is the soft capsule, buttons and navigation items are rounded pills, and filter chips are slightly tighter. Resource cards use a consistent rounded rectangle; fields and metadata boxes use smaller corners. Thin borders define card and field edges, and card artwork clips cleanly to its rounded frame. Focus stays visible as a clear blue outline with a small offset.
 
 ## Components
 
 ### Buttons
+
+The extension scan button uses the current tab's favicon on a small white circular plate, with a globe when Chrome withholds it or the icon fails to load. Amber fill and outline pair with **Scan page** when the active tab or document needs a manual scan. A successful scan changes it to blue **Scan again**. Reloads and navigation restore the amber state without triggering capture; switching back to an unchanged scanned tab preserves blue within the open panel session.
+
 - **Shape:** Rounded pill (`rounded.pill`).
 - **Primary:** Blue fill, white text, 40px minimum height, and 17px horizontal padding. Hover deepens the blue and adds a small shadow; press shifts down one pixel.
 - **Secondary:** White fill, strong neutral outline, and deep-blue text. Hover keeps the treatment neutral and lightly changes the surface.
