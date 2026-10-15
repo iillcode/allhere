@@ -13,7 +13,7 @@ await writeFile(path.join(root, "apps/web/public/icons/allhere.svg"), source);
 
 for (const size of [16, 32, 48, 128]) {
   const inset = size === 128 ? 16 : size === 48 ? 3 : size === 32 ? 2 : 1;
-  const mark = await sharp(Buffer.from(source)).trim().resize(size - inset * 2, size - inset * 2, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+  const mark = await sharp(Buffer.from(source), { density: 288 }).trim().resize(size - inset * 2, size - inset * 2, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
   await sharp({ create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
     .composite([{ input: mark, left: inset, top: inset }]).png().toFile(path.join(icons, `allhere-${size}.png`));
 }

@@ -30,6 +30,9 @@ const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\Br
   "--headless=new",
   "--no-first-run",
   "--no-default-browser-check",
+  "--disable-background-timer-throttling",
+  "--disable-renderer-backgrounding",
+  "--disable-backgrounding-occluded-windows",
   ...(source === "installed" ? [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`] : []),
   "about:blank",
 ], { windowsHide: true, stdio: "ignore" });
@@ -116,17 +119,33 @@ try {
     await sourcePage.ready();
     await sourcePage.send("Page.bringToFront");
     await until(() => sourcePage.evaluate("document.readyState === 'complete'"), "The source webpage did not finish loading.");
+    // The homepage's lazy demo iframe starts after the outer page load. Wait
+    // for that visible product preview before taking a settled-page scan.
+    if (await sourcePage.evaluate("Boolean(document.querySelector('iframe[src*=\"/demo/extension\"]'))")) {
+      await until(() => sourcePage.evaluate("document.querySelector('iframe[src*=\"/demo/extension\"]')?.contentDocument?.querySelector('.button--scan')?.disabled === false"), "The homepage demo did not finish initializing.");
+    }
     await until(() => page.evaluate("document.querySelector('.button--scan')?.disabled === false"), "The saved library did not finish loading.");
-    await until(() => page.evaluate(`chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab]) => tab?.url === ${JSON.stringify(webUrl)})`), "The source webpage did not become active.");
+    await until(() => page.evaluate(`chrome.tabs.query({active:true,lastFocusedWindow:true}).then(([tab]) => tab?.url === ${JSON.stringify(webUrl)} && tab.status === 'complete' && Boolean(tab.favIconUrl))`), "The source webpage did not become active and finish loading.");
+    await until(() => page.evaluate("chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>{const icon=document.querySelector('.scan-favicon img');return icon?.dataset.faviconUrl===tab?.favIconUrl&&icon?.complete&&icon.naturalWidth>0;})"), "The panel did not receive the current tab's favicon.");
     await page.evaluate("document.querySelector('.button--scan').click()", true);
-    await until(() => page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
-    sourcePage.close();
-    await until(() => page.evaluate("document.querySelector('.button--scan')?.dataset.scanState === 'ready'"), "The scan button did not confirm the current page.");
+    try {
+      await until(() => page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
+    } catch (error) {
+      console.error(await page.evaluate("({notice:document.querySelector('.notice')?.textContent,state:document.querySelector('.button--scan')?.dataset.scanState})"));
+      throw error;
+    }
+    try {
+      await until(() => page.evaluate("document.querySelector('.button--scan')?.dataset.scanState === 'ready'"), "The scan button did not confirm the current page.");
+    } catch (error) {
+      console.error(await page.evaluate("({notice:document.querySelector('.notice')?.textContent,state:document.querySelector('.button--scan')?.dataset.scanState})"));
+      throw error;
+    }
     // A real side panel stays beside its source tab. This headless harness uses
     // an extension tab: retain Chrome's source metadata while foregrounding it
     // for reliable screenshots, without changing capture or stored resources.
     await page.evaluate("(async()=>{const query=chrome.tabs.query.bind(chrome.tabs);const source=await query({active:true,currentWindow:true});chrome.tabs.query=options=>options.currentWindow?Promise.resolve(source):query(options);})()");
     await page.send("Page.bringToFront");
+    sourcePage.close();
   } else {
     await until(() => page.evaluate("document.body.innerText.includes('The activeTab permission')"), "The side panel demo did not load its sample resources.");
   }
