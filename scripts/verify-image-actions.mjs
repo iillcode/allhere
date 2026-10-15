@@ -19,7 +19,8 @@ const dragOnly = process.argv[2] === "--drag-check";
 const scanOnly = process.argv[2] === "--scan-check";
 const modalOnly = process.argv[2] === "--modal-check";
 const downloadOnly = process.argv[2] === "--download-check";
-const formatOnly = process.argv[2] === "--format-check";
+const upscaleOnly = process.argv[2] === "--upscale-check";
+const formatOnly = process.argv[2] === "--format-check" || upscaleOnly;
 async function until(check, message, timeout = 20_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
@@ -344,7 +345,7 @@ try {
     await client.evaluate(`(${formatRoot(scope,label)}).querySelector('[role=combobox]').click()`,true);
     await until(()=>client.evaluate(`!(${formatRoot(scope,label)}).querySelector('[role=listbox]').matches(':popover-open')`),'Custom format dropdown did not close');
   }
-  async function action(label, name, format) {
+  async function action(label, name, format, scale) {
     await selectCategory(entries.find(entry => entry.label === label)?.kind === "icon" ? "Icons" : "Images");
     await page.evaluate(`(() => {
       const card = [...document.querySelectorAll('.resource-card')].find(card => card.getAttribute('aria-label') === ${JSON.stringify(label)});
@@ -353,6 +354,7 @@ try {
     })()`, true);
     await until(() => page.evaluate("Boolean(document.querySelector('.resource-actions__menu'))"), "Menu did not open");
     if (format) await chooseFormat(page,'.resource-actions__menu','Download format',format);
+    if (scale) await page.evaluate(`document.querySelector('.resource-actions__menu [data-image-scale="${scale}"]').click()`,true);
     await page.evaluate(`(() => {
       const button = [...document.querySelectorAll('.resource-actions__item')].find(button => button.textContent.trim() === ${JSON.stringify(name)});
       if (!button || button.disabled) throw new Error('Requested action is unavailable');
@@ -365,6 +367,7 @@ try {
     await mkdir(resolve('.impeccable/review'),{recursive:true});
     const jobs=()=>page.evaluate("chrome.storage.local.get('allhere.downloads.v1').then(data=>data['allhere.downloads.v1']||[])");
     const decode=async(bytes)=>page.evaluate(`(async()=>{const image=new Image();image.src='data:image/'+${JSON.stringify(bytes[0]===0xff?'jpeg':bytes[0]===0x89?'png':'webp')}+';base64,'+${JSON.stringify(bytes.toString('base64'))};await image.decode();const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);return {width:canvas.width,height:canvas.height,pixel:Array.from(ctx.getImageData(0,0,1,1).data)};})()`);
+    if(!upscaleOnly){
     for(const [label,format,extension] of [['Inline icon','svg','svg'],['Raster icon','svg','svg'],['Inline icon','png','png'],['Inline icon','jpeg','jpg'],['Inline icon','webp','webp'],['Original JPEG','png','png']]){
       const previous=new Set((await jobs()).map(job=>job.id));
       await action(label,'Download',format);
@@ -479,10 +482,121 @@ try {
         await web.evaluate("[...document.querySelectorAll('.bulk-selection__menu-panel button')].find(button=>button.textContent.includes('Download as ZIP')).click()",true);
         const webZip=await until(async()=>{const filename=(await readdir(downloads)).find(name=>name.endsWith('.zip')&&!priorFiles.has(name));if(!filename)return;try{return unzipSync(await readFile(join(downloads,filename)));}catch{return;}},'Web converted ZIP did not download');
         assert.match(Buffer.from(webZip['Inline icon.svg']).toString(),/<path/);assert.deepEqual([...webZip['Original JPEG.png'].subarray(0,8)],[137,80,78,71,13,10,26,10]);assert.deepEqual(Buffer.from(webZip['Binary file.blend']),fixtures.get('/format-file.blend').bytes);
-        console.log('PASS actual web format controls at 1440/390px and mixed converted ZIP bytes.');
+        await web.evaluate("document.querySelector('.bulk-selection__controls button:last-child').click()",true);
+        await category('Images');
+        await web.evaluate("document.querySelector('.resource-card[aria-label=\"Original JPEG\"]').click()",true);
+        await until(()=>web.evaluate("Boolean(document.querySelector('.details-panel .image-scale'))"),'Web image sizing did not open');
+        await web.evaluate("document.querySelector('.details-panel [data-image-scale=\"4\"]').click()",true);
+        await until(()=>web.evaluate("document.querySelector('.details-panel .resource-art__image')?.naturalWidth===64"),'Web preview did not render 4× pixels');
+        for(const width of [1440,390]){
+          await web.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});
+          assert.ok(await web.evaluate("document.documentElement.scrollWidth<=innerWidth"),'Web resized preview overflowed');
+          const shot=await web.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve(`.impeccable/review/upscale-web-preview-${width}.png`),Buffer.from(shot.data,'base64'));
+        }
+        const priorUpscaledFiles=new Set(await readdir(downloads));
+        await web.evaluate("document.querySelector('.image-preview-tools__download').click()",true);
+        const webResized=await until(async()=>{const filename=(await readdir(downloads)).find(name=>name.includes('-4x')&&name.endsWith('.png')&&!priorUpscaledFiles.has(name));if(filename)return readFile(join(downloads,filename));},'Web preview did not download its selected size');
+        assert.equal((await decode(webResized)).width,64);
+        console.log('PASS actual web format controls and 4× preview/download at 1440/390px, plus mixed converted ZIP bytes.');
       }finally{web.close();await browserCdp.send('Target.closeTarget',{targetId:webId});}
     }
-    console.log('PASS format choices: vector/raster SVG, PNG/JPEG/WebP bytes and dimensions, alpha/white background, damaged input, mixed ZIP conversion, preview controls, 320/390/720px.');
+    }
+    await page.evaluate("document.querySelector('[aria-label=\"Close preview\"]')?.click();document.querySelector('.bulk-selection__controls button:last-child')?.click()",true);
+    await selectCategory('Images');
+    for(const [scale,format,extension] of [[2,'png','png'],[4,'png','png'],[2,'jpeg','jpg'],[4,'webp','webp'],[2,'original','png'],[1,'original','jpg']]){
+      const previous=new Set((await jobs()).map(job=>job.id));
+      await action('Original JPEG','Download',format,scale);
+      const job=await until(async()=>(await jobs()).find(job=>!previous.has(job.id)&&job.state==='complete'),`${scale}× ${format} did not download`);
+      const bytes=await readFile(join(downloads,job.filename));
+      const decoded=await decode(bytes);
+      assert.equal(decoded.width,16*scale);assert.equal(decoded.height,16*scale);
+      assert.ok(job.filename.endsWith('.'+extension));
+      if(scale>1)assert.ok(job.filename.includes(`-${scale}x`),'Resized filenames must identify their size');
+      else assert.deepEqual(bytes,jpeg,'Original size and format must retain original JPEG bytes');
+    }
+    fixtures.set('/upscale-alpha.svg',{type:'image/svg+xml',bytes:Buffer.from(inlineSvg)});
+    const transparent={...capture.resources.find(item=>item.label==='Inline icon'),id:'upscale-alpha',kind:'image',label:'Transparent image',url:base+'/upscale-alpha.svg'};
+    const large={...capture.resources[0],id:'upscale-large',kind:'image',label:'Large image',url:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="2000"><rect width="3000" height="2000" fill="blue"/></svg>')};
+    capture.resources.push(transparent,large);
+    await page.evaluate(`chrome.storage.local.set({'allhere.library.v1':${JSON.stringify([capture])}})`);
+    await until(()=>page.evaluate("Boolean(document.querySelector('.resource-card[aria-label=\"Transparent image\"]'))"),'Transparency fixture did not appear');
+    for(const format of ['png','jpeg']){
+      const previous=new Set((await jobs()).map(job=>job.id));
+      await action('Transparent image','Download',format,2);
+      const job=await until(async()=>(await jobs()).find(job=>!previous.has(job.id)&&job.state==='complete'),'Transparent resized download failed');
+      const decoded=await decode(await readFile(join(downloads,job.filename)));
+      assert.equal(decoded.width,48);assert.equal(decoded.height,48);
+      if(format==='png')assert.equal(decoded.pixel[3],0,'Resizing must preserve PNG transparency');
+      else assert.ok(decoded.pixel[3]===255&&decoded.pixel.slice(0,3).every(value=>value>235),'Resized JPEG transparency must be white');
+    }
+    const beforeLimit=new Set((await jobs()).map(job=>job.id));
+    await action('Large image','Download','png',4);
+    assert.match(await page.evaluate("document.querySelector('.notice')?.textContent||''"),/too large.*12000.*8000/i);
+    assert.ok((await jobs()).every(job=>beforeLimit.has(job.id)),'An oversized resize must not start a download');
+    for(const [category,label] of [['Icons','Inline icon'],['Images','Original JPEG'],['Files','Binary file']]){
+      await selectCategory(category);await page.evaluate(`document.querySelector(${JSON.stringify(`[aria-label="Select ${label}"]`)}).click()`,true);
+    }
+    await page.evaluate("document.querySelector('.bulk-selection__menu-trigger').click()",true);
+    await chooseFormat(page,'.bulk-selection__menu-panel','Icon format','svg');
+    await chooseFormat(page,'.bulk-selection__menu-panel','Image format','png');
+    await page.evaluate("document.querySelector('.bulk-selection__menu-panel [data-image-scale=\"2\"]').click()",true);
+    for(const width of [320,390,720]){
+      await page.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
+      assert.ok(await page.evaluate("(()=>{const r=document.querySelector('.bulk-selection__menu-panel').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})()"),'Bulk image sizing overflowed');
+      if(width!==390){const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve(`.impeccable/review/upscale-bulk-${width}.png`),Buffer.from(shot.data,'base64'));}
+    }
+    const beforeScaledZip=new Set((await jobs()).map(job=>job.id));
+    await page.evaluate("[...document.querySelectorAll('.bulk-selection__menu-panel button')].find(button=>button.textContent.includes('Download as ZIP')).click()",true);
+    const scaledZip=await until(async()=>(await jobs()).find(job=>!beforeScaledZip.has(job.id)&&job.state==='complete'),'Resized ZIP did not complete');
+    const scaledContents=unzipSync(await readFile(join(downloads,scaledZip.filename)));
+    assert.equal((await decode(Buffer.from(scaledContents['Original JPEG-2x.png']))).width,32);
+    assert.match(Buffer.from(scaledContents['Inline icon.svg']).toString(),/<svg/);
+    assert.deepEqual(Buffer.from(scaledContents['Binary file.blend']),fixtures.get('/format-file.blend').bytes,'Resizing altered a nonimage ZIP entry');
+    await page.evaluate("document.querySelector('.bulk-selection__controls button:last-child').click()",true);
+    await selectCategory('Images');
+    await page.evaluate("window.__resizeRequests=[];window.__resizePermission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__resizeRequests.push({options,gesture:navigator.userActivation.isActive});return window.__denyResize?Promise.resolve(false):window.__resizePermission(options);};window.__denyResize=false;");
+    await page.evaluate("document.querySelector('.resource-card[aria-label=\"Original JPEG\"]').click()",true);
+    await until(()=>page.evaluate("document.querySelector('.resource-modal .resource-art__image')?.naturalWidth===32"),'Preview did not use the selected 2× pixels');
+    assert.equal(await page.evaluate("window.__resizeRequests.length"),0,'Opening a preview must not trigger a permission request');
+    await page.evaluate("window.__denyResize=true");
+    await page.evaluate("document.querySelector('.resource-modal [data-image-scale=\"4\"]').click()",true);
+    await until(()=>page.evaluate("document.querySelector('.image-preview-tools__status')?.textContent.includes('not granted')"),'Denied image access was not explained');
+    await page.evaluate("window.__denyResize=false;document.querySelector('.image-preview-tools__retry').click()",true);
+    await until(()=>page.evaluate("document.querySelector('.resource-modal .resource-art__image')?.naturalWidth===64"),'Retry did not render 4× preview pixels');
+    assert.ok(await page.evaluate("window.__resizeRequests.length===2&&window.__resizeRequests.every(request=>request.gesture)"),'Preview permission requests must originate in explicit user actions');
+    for(const width of [320,390,720]){
+      await page.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
+      await page.evaluate("document.querySelector('.resource-modal').scrollTo(0,0)");
+      assert.ok(await page.evaluate("(()=>{const r=document.querySelector('.image-preview-tools').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&document.documentElement.scrollWidth<=innerWidth;})()"),'Image preview size controls overflowed');
+      if(width!==390){const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve(`.impeccable/review/upscale-preview-${width}.png`),Buffer.from(shot.data,'base64'));}
+    }
+    const livePreviewUrl=await page.evaluate("document.querySelector('.resource-modal .resource-art__image').src");
+    assert.ok(livePreviewUrl.startsWith('blob:'),'Upscaled preview must use generated image bytes');
+    const beforePreviewExport=new Set((await jobs()).map(job=>job.id));
+    await page.evaluate("document.querySelector('.resource-modal .details-open').click()",true);
+    const resizedPreviewJob=await until(async()=>(await jobs()).find(job=>!beforePreviewExport.has(job.id)&&job.state==='complete'),'Preview size was not used for its download');
+    assert.equal((await decode(await readFile(join(downloads,resizedPreviewJob.filename)))).width,64);
+    await page.evaluate("document.querySelector('[aria-label=\"Close preview\"]').click()",true);
+    assert.equal(await page.evaluate(`fetch(${JSON.stringify(livePreviewUrl)}).then(()=>false,()=>true)`),true,'Closing a preview must revoke its generated URL');
+    await page.evaluate("document.querySelector('.resource-card[aria-label=\"Original JPEG\"]').closest('.resource-card-frame').querySelector('.resource-actions__trigger').click()",true);
+    for(const width of [320,390,720]){
+      await page.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
+      await page.evaluate("document.querySelector('.resource-actions__menu .image-scale').scrollIntoView({block:'center'})");
+      assert.ok(await page.evaluate("(()=>{const r=document.querySelector('.resource-actions__menu .image-scale').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})()"),'Single download sizing overflowed');
+      if(width!==390){const shot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve(`.impeccable/review/upscale-single-${width}.png`),Buffer.from(shot.data,'base64'));}
+    }
+    await page.evaluate("document.querySelector('.resource-actions__trigger[aria-expanded=true]').click();document.querySelector('.resource-card[aria-label=\"Original JPEG\"]').click()",true);
+    await until(()=>page.evaluate("document.querySelector('.resource-modal .resource-art__image')?.naturalWidth===64"),'New preview did not initialize at the selected size');
+    await page.evaluate("window.__normalResizeFetch=window.fetch.bind(window);window.__holdResize=true;window.fetch=async(...args)=>{const response=await window.__normalResizeFetch(...args);if(window.__holdResize&&String(args[0]).includes('/ordinary.jpg')){window.__holdResize=false;await new Promise(resolve=>window.__releaseResize=resolve);}return response;};");
+    await page.evaluate("document.querySelector('.resource-modal [data-image-scale=\"2\"]').click()",true);
+    await until(()=>page.evaluate("typeof window.__releaseResize==='function'"),'Resize did not reach its stale-result checkpoint');
+    await page.evaluate("document.querySelector('.resource-modal [data-image-scale=\"1\"]').click();window.__releaseResize();window.fetch=window.__normalResizeFetch;delete window.__releaseResize;",true);
+    try { await until(()=>page.evaluate("document.querySelector('.resource-modal .resource-art__image')?.naturalWidth===16"),'Original preview did not restore after canceling an enlargement'); }
+    catch(error){console.log('Preview cancellation state',await page.evaluate("({image:[...document.querySelectorAll('.resource-modal img')].map(image=>({src:image.src,width:image.naturalWidth,complete:image.complete})),status:document.querySelector('.image-preview-tools__status')?.textContent,tools:document.querySelector('.image-preview-tools')?.outerHTML,notice:document.querySelector('.resource-art__preview-message')?.textContent})"));throw error;}
+    await delay(200);
+    assert.equal(await page.evaluate("document.querySelector('.resource-modal .resource-art__image').naturalWidth"),16,'A late resize replaced the requested Original preview');
+    console.log('PASS 2×/4× image sizes: actual PNG/JPEG/WebP bytes and pixels, original preservation, transparency, size limits, mixed ZIPs, preview/download parity, permission denial/retry, stale-result cancellation and URL cleanup; 320/390/720px.');
+    if(!upscaleOnly) console.log('PASS format choices: vector/raster SVG, PNG/JPEG/WebP bytes and dimensions, alpha/white background, damaged input, mixed ZIP conversion, preview controls, 320/390/720px.');
   } else if (downloadOnly) {
     await mkdir(resolve('.impeccable/review'),{recursive:true});
     const jobs=()=>page.evaluate("chrome.storage.local.get('allhere.downloads.v1').then(data=>data['allhere.downloads.v1']||[])");

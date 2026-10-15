@@ -29,6 +29,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 ## Capabilities and Constraints
 
 - Gather images, links, media, and file/resource URLs present in a webpage.
+- Offer optional local 2×/4× image resizing in previews, individual downloads, and bulk ZIPs. Keep Original size as the default and explain that resizing increases dimensions without reconstructing missing detail.
 - Show resource details and clear security signals, especially for links.
 - Use local heuristics for security flags; do not imply that a heuristic proves a destination is safe.
 - MVP storage is local to each surface. JSON archive import/export is the transfer path between the extension and web library; no cloud sync is specified.

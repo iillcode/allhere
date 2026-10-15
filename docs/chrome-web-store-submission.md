@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.5`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release removes the bottom link-check label and its unused extension footer space. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.6`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release adds optional local 2×/4× image resizing for single downloads, bulk ZIPs, and previews. It increases pixel dimensions without AI reconstruction. Original size remains the default, and previews show the resulting pixel dimensions. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -26,6 +26,8 @@ Allhere turns webpage resources into an organized local library in Chrome's side
 
 Browse by resource type, save useful items, inspect previews, copy addresses, and download individual files or a ZIP of selected resources. Direct video and audio files are supported; YouTube videos are not extracted or downloaded.
 
+For images, choose Original, 2×, or 4× size for previews and single or bulk downloads. Resizing runs locally in the browser and increases pixel dimensions without AI reconstruction. The preview shows the output dimensions. Original size is the default; enlarged images use PNG unless you select JPEG or WebP.
+
 Allhere stores page addresses, resource details, selected previews, and download status locally in Chrome's extension storage. It does not sync your library to an Allhere account or send it to an Allhere analytics service. Opening previews or downloading files may contact the resources' original hosts; file actions can ask you to allow access to those specific hosts. Exporting a JSON archive or dragging a chosen file to a website shares that data only when you take that action. See the published Allhere privacy policy for details.
 
 **Reviewer instructions:** Open a normal HTTP/HTTPS webpage, click Allhere's toolbar icon, and read the automatic-update disclosure beside the scan action. Opening the panel must not scan. Choose Scan page, then add or load resources on that page: its collection updates automatically. Pause updates and verify that changes wait; Resume collects them. A manual Scan again while paused refreshes once and keeps the pause. An unscanned tab must remain manual even if file access to its host was previously allowed. A previously scanned tab can resume when active; same-origin navigation can update, while cross-origin navigation ends consent. Hiding or closing the panel ends authorization; showing it again requires another manual scan. Manage pauses capture and automatic updates never restore deleted items. Test copying, downloading, and bulk ZIP actions separately; these may request original resource-host access. No account is required.
@@ -36,7 +38,7 @@ Verify that `https://allhere-ten.vercel.app/privacy` describes the first manual 
 
 | Access | Why Allhere uses it |
 | --- | --- |
-| Optional HTTP and HTTPS host access | User-requested downloads, ZIPs, SVG copying, and drag preparation request only selected resources' original hosts. No required all-site access or runtime wildcard request is made. A file-host grant never enables scanning automatically; every tab still needs a successful manual scan before automatic updates. |
+| Optional HTTP and HTTPS host access | User-requested downloads, ZIPs, enlarged-image preview preparation, SVG copying, and drag preparation request only selected resources' original hosts. Opening a preview never requests permission automatically; choosing a size or retrying can request its image host. No required all-site access or runtime wildcard request is made. A file-host grant never enables scanning automatically; every tab still needs a successful manual scan before automatic updates. |
 | `activeTab` | The toolbar gives temporary access to that tab. Available metadata shows its favicon and scan state. Its first successful manual scan, with prior in-panel disclosure, enables automatic updates only while that tab is active and the panel is visible. Consent and pause state are in memory; another origin, lost access, or panel hiding or closure ends authorization. No broad tabs permission or History API is used. |
 | `scripting` | Collect accessible resource metadata after a manual scan and during the limited automatic updates it enables. Install a packaged resource watcher connected to the visible panel, and a packaged file-drop helper. Observers disconnect when updates stop; no remote code is executed. |
 | `sidePanel` | Display the resource library beside the active tab. |
@@ -53,7 +55,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.4. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.6. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 
@@ -89,7 +91,7 @@ Captured collections can include many resources and embedded SVG, image, and gen
 
 **Host permission justification, if shown**
 
-Allhere needs original file bytes from resource hosts discovered at runtime for user-requested downloads, ZIP creation, format conversion, SVG copying, and file-drag preparation. It requests access only to the original hosts of selected resources, never a wildcard grant to all websites. Scanning does not request persistent site access. Optional host grants remain until removed in Chrome settings.
+Allhere needs original file bytes from resource hosts discovered at runtime for user-requested downloads, ZIP creation, format conversion, enlarged-image preview preparation, SVG copying, and file-drag preparation. Choosing a preview size or retrying it can request its image host; opening a preview never prompts automatically. It requests only selected resources' original hosts, never a wildcard grant to all websites. Scanning does not request persistent site access. Optional host grants remain until removed in Chrome settings.
 
 **Remote code**
 

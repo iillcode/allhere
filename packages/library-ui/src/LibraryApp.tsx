@@ -66,7 +66,9 @@ import { iconAsSvg, loadImageFile } from "./assetFiles";
 import { createResourceZip } from "./bulkExport";
 import { extensionForMime, loadDownloadFile } from "./downloadFiles";
 import { DownloadFormatSelect } from "./DownloadFormatSelect";
-import { convertImageDownload, originalDownloadFormats, type DownloadFormats, type IconDownloadFormat, type ImageDownloadFormat } from "./imageDownloads";
+import { ImageScaleSelect } from "./ImageScaleSelect";
+import { useImageUpscale } from "./useImageUpscale";
+import { convertImageDownload, originalDownloadFormats, scaledImageFilename, type DownloadFormats, type IconDownloadFormat, type ImageDownloadFormat, type ImageScale } from "./imageDownloads";
 import { iconNeedsDarkBackground } from "./iconContrast";
 import { loadResourceFile } from "./resourceFiles";
 import { useResourceDrag } from "./useResourceDrag";
@@ -432,7 +434,7 @@ function FontPreview({ item }: { item: DisplayItem }) {
   return <span className={`resource-art__font-sample${family ? " resource-art__font-sample--loaded" : ""}`} style={family ? { fontFamily: `"${family}", var(--font-ui)` } : undefined}>Ag</span>;
 }
 
-function ResourceArt({ item, compact = false, preview = false }: { item: DisplayItem; compact?: boolean; preview?: boolean }) {
+function ResourceArt({ item, compact = false, preview = false, imageSource }: { item: DisplayItem; compact?: boolean; preview?: boolean; imageSource?: string }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const [failedBlobSource, setFailedBlobSource] = useState<string | null>(null);
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
@@ -441,7 +443,7 @@ function ResourceArt({ item, compact = false, preview = false }: { item: Display
   const iconImageRef = useRef<HTMLImageElement>(null);
   const Icon = kindIcon(item.kind);
   const hostedId = item.kind === "video" ? youtubeId(item.url) : undefined;
-  const assetUrl = hostedId ? `https://i.ytimg.com/vi/${hostedId}/hqdefault.jpg` : preview && item.kind === "audio" ? safeWebUrl(item.url) : item.imageUrl;
+  const assetUrl = hostedId ? `https://i.ytimg.com/vi/${hostedId}/hqdefault.jpg` : preview && item.kind === "audio" ? safeWebUrl(item.url) : imageSource ?? item.imageUrl;
   const sourceKey = `${item.id}\u0000${assetUrl ?? ""}`;
   const directFailed = failedSource === sourceKey;
   const blobUrl = blobPreview?.source === sourceKey && failedBlobSource !== sourceKey
@@ -1275,7 +1277,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setResourceActionId(item.id);
     setOpenActionMenuId(null);
     const isImage = item.kind === "image" || item.kind === "icon";
-    setNotice(isImage ? "Checking the image before downloading…" : "Preparing your download…");
+    const scale = item.kind === "image" ? downloadFormats.imageScale : 1;
+    setNotice(scale > 1 ? `Preparing the ${scale}× image…` : isImage ? "Checking the image before downloading…" : "Preparing your download…");
     try {
       if (mode === "extension" && item.kind !== "link" && item.kind !== "page" && !await requestWebsiteAccess(websiteOrigins([item.url]))) {
         throw new Error("Website access was not granted. Choose Download to try again.");
@@ -1294,7 +1297,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         filename = filenameForResource(item, "url");
       } else {
         let file;
-        if (isImage && format !== "original") file = await convertImageDownload(item.url, format);
+        if (isImage && (format !== "original" || scale > 1)) file = await convertImageDownload(item.url, format, scale);
         else if (isImage) {
           try { file = await loadImageFile(item.url); }
           catch (error) {
@@ -1303,7 +1306,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           }
         } else file = await loadDownloadFile(item.url, item.kind, 256 * 1024 * 1024);
         blob = file.blob;
-        filename = filenameForResource(item, file.extension, "filename" in file ? file.filename : undefined);
+        filename = scaledImageFilename(filenameForResource(item, file.extension, "filename" in file ? file.filename : undefined), scale);
       }
       const objectUrl = URL.createObjectURL(blob);
       if (mode === "extension") {
@@ -1524,6 +1527,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
             )}
             {isVisual && <DownloadFormatSelect label="Download format" value={downloadFormat} allowSvg={item.kind === "icon"} disabled={resourceActionId !== null}
               onChange={format => setDownloadFormats(current => item.kind === "icon" ? { ...current, icons: format } : { ...current, images: format as ImageDownloadFormat })} />}
+            {item.kind === "image" && <ImageScaleSelect value={downloadFormats.imageScale} disabled={resourceActionId !== null} originalFormat={downloadFormat === "original"}
+              onChange={imageScale => setDownloadFormats(current => ({ ...current, imageScale }))} />}
             {!youtubeId(item.url) && <button className="resource-actions__item" type="button" role={isVisual ? undefined : "menuitem"} disabled={resourceActionId !== null} onClick={() => void handleDownloadResource(item, isVisual ? downloadFormat : "original")}>
               <ArrowDownToLine size={16} /><span>Download</span>
             </button>}
@@ -2044,11 +2049,18 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
             {selected && mode === "web" && (
               <ResourceDetails
+                key={selectionKey(selected)}
                 item={selected}
                 onClose={() => setSelected(null)}
                 onDelete={() => sampleMode ? setSelected(null) : handleDelete(selected)}
                 onCopy={handleCopy}
                 allowDelete={!sampleMode}
+                imageScale={downloadFormats.imageScale}
+                onImageScaleChange={imageScale => setDownloadFormats(current => ({ ...current, imageScale }))}
+                requestImageAccess={() => Promise.resolve(true)}
+                downloadFormat={downloadFormats.images}
+                onDownload={selected.kind === "image" ? () => void handleDownloadResource(selected, downloadFormats.images) : undefined}
+                downloadBusy={resourceActionId === selected.id}
               />
             )}
           </div>
@@ -2062,6 +2074,9 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         downloadFormat={selected.kind === "icon" ? downloadFormats.icons : downloadFormats.images}
         onDownloadFormatChange={selected.kind === "icon" || selected.kind === "image" ? format => setDownloadFormats(current => selected.kind === "icon" ? { ...current, icons: format } : { ...current, images: format as ImageDownloadFormat }) : undefined}
         downloadBusy={resourceActionId === selected.id}
+        imageScale={downloadFormats.imageScale}
+        onImageScaleChange={imageScale => setDownloadFormats(current => ({ ...current, imageScale }))}
+        requestImageAccess={() => requestWebsiteAccess(websiteOrigins([selected.url]))}
         statusMessage={notice}
         downloadTray={downloadTray}
       />}
@@ -2094,6 +2109,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               <div className="bulk-selection__menu-panel" role={selectedIcons || selectedImages ? "dialog" : "menu"} aria-label="Bulk actions">
                 {selectedIcons && <DownloadFormatSelect label="Icon format" value={downloadFormats.icons} allowSvg onChange={format => setDownloadFormats(current => ({ ...current, icons: format }))} />}
                 {selectedImages && <DownloadFormatSelect label="Image format" value={downloadFormats.images} onChange={format => setDownloadFormats(current => ({ ...current, images: format as ImageDownloadFormat }))} />}
+                {selectedImages && <ImageScaleSelect value={downloadFormats.imageScale} disabled={bulkBusy} originalFormat={downloadFormats.images === "original"}
+                  onChange={imageScale => setDownloadFormats(current => ({ ...current, imageScale }))} />}
                 <button type="button" role={selectedIcons || selectedImages ? undefined : "menuitem"} onClick={() => void handleBulkDownload()}><FileArchive size={17} /><span>Download as ZIP</span></button>
                 <button type="button" role={selectedIcons || selectedImages ? undefined : "menuitem"} onClick={() => void handleBulkCopy()}><Copy size={17} /><span>Copy URLs</span></button>
               </div>
@@ -2163,6 +2180,9 @@ function ResourceDetails({
   downloadBusy = false,
   downloadFormat = "original",
   onDownloadFormatChange,
+  imageScale = 1,
+  onImageScaleChange,
+  requestImageAccess,
   statusMessage,
 }: {
   item: DisplayItem;
@@ -2175,6 +2195,9 @@ function ResourceDetails({
   downloadBusy?: boolean;
   downloadFormat?: IconDownloadFormat;
   onDownloadFormatChange?: (format: IconDownloadFormat) => void;
+  imageScale?: ImageScale;
+  onImageScaleChange?: (scale: ImageScale) => void;
+  requestImageAccess?: () => Promise<boolean>;
   statusMessage?: string;
   downloadTray?: ReactNode;
 }) {
@@ -2182,6 +2205,8 @@ function ResourceDetails({
   const webUrl = safeWebUrl(item.url);
   const Icon = kindIcon(item.kind);
   const imageDescription = item.kind === "image" ? resource?.description?.trim() || resource?.alt?.trim() : undefined;
+  const imageUpscale = useImageUpscale({ url: item.url, scale: imageScale, enabled: item.kind === "image", format: downloadFormat === "svg" ? "png" : downloadFormat,
+    onChange: onImageScaleChange, requestAccess: requestImageAccess });
 
   return (
     <aside className="details-panel" aria-label="Resource details">
@@ -2190,7 +2215,18 @@ function ResourceDetails({
         <button className="icon-button icon-button--small" aria-label={preview ? "Close preview" : "Close details"} onClick={onClose}><X size={17} /></button>
       </div>
 
-      <ResourceArt item={item} preview={preview} />
+      {item.kind === "image" && onImageScaleChange && <div className="image-preview-tools" data-preview-scale={imageScale}>
+        <ImageScaleSelect value={imageScale} onChange={imageUpscale.change} disabled={downloadBusy} originalFormat={downloadFormat === "original"} />
+        {imageScale > 1 && <p className="image-preview-tools__status" role="status">
+          {imageUpscale.busy ? <><LoaderCircle className="spin" size={14} /> Preparing {imageScale}× preview…</>
+            : imageUpscale.error || (imageUpscale.result ? `${imageUpscale.result.width} × ${imageUpscale.result.height} pixels · ${imageScale}× preview` : "Choose a size to prepare the preview.")}
+        </p>}
+        {imageUpscale.error && <button type="button" className="image-preview-tools__retry" onClick={imageUpscale.retry}>Retry {imageScale}× preview</button>}
+        {!preview && imageScale > 1 && onDownload && <button className="button button--primary image-preview-tools__download" onClick={onDownload} disabled={downloadBusy || imageUpscale.busy}>
+          <ArrowDownToLine size={16} /> Download {imageScale}× image
+        </button>}
+      </div>}
+      <ResourceArt key={imageUpscale.result?.url ?? item.url} item={item} preview={preview} imageSource={imageUpscale.result?.url} />
       {preview && !["image", "icon", "font", "video", "audio"].includes(item.kind) && <p className="resource-modal__unsupported">An inline preview is not available for this resource. You can copy its address{item.kind === "link" || item.kind === "page" ? "." : " or download the file."}</p>}
 
       <div className="details-title">
@@ -2252,8 +2288,8 @@ function ResourceDetails({
         {preview ? (
           item.kind === "link" || item.kind === "page" || !onDownload
             ? <button className="button button--primary details-open" onClick={() => onCopy(item.url)}><Copy size={16} /><span>Copy URL</span></button>
-            : <button className="button button--primary details-open" onClick={onDownload} disabled={downloadBusy}>
-              {downloadBusy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}<span>{downloadBusy ? "Preparing…" : "Download"}</span>
+            : <button className="button button--primary details-open" onClick={onDownload} disabled={downloadBusy || imageUpscale.busy}>
+              {downloadBusy || imageUpscale.busy ? <LoaderCircle className="spin" size={16} /> : <ArrowDownToLine size={16} />}<span>{downloadBusy || imageUpscale.busy ? "Preparing…" : item.kind === "image" && imageScale > 1 ? `Download ${imageScale}× image` : "Download"}</span>
             </button>
         ) : webUrl ? (
           <a className="button button--primary details-open" href={webUrl} target="_blank" rel="noopener noreferrer">
