@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.4`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release restores automatic resource updates only after each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans still use temporary toolbar access and never request persistent site access.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.5`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release removes the bottom link-check label and its unused extension footer space. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 

@@ -2103,7 +2103,6 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       )}
 
       <footer className="app-footer">
-        <span><ShieldCheck size={14} /> Link checks run on this device</span>
         <span>HTTPS is a connection signal, not a trust guarantee.</span>
       </footer>
     </div>
