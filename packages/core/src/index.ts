@@ -472,13 +472,22 @@ export function upsertPageCapture(
   incoming: PageCapture,
 ): PageCapture[] {
   const previous = current.find((capture) => capture.pageUrl === incoming.pageUrl);
+  const merged = dedupeResources([...(previous?.resources ?? []), ...incoming.resources]);
+  const byIdentity = new Map(merged.map(resource => [resourceIdentity(resource), resource]));
+  const pageOrder = new Set(incoming.resources.map(resourceIdentity));
+  // Use the latest page order while preserving stable IDs, saved choices, and
+  // previously collected resources that are no longer present on the page.
+  const resources = [
+    ...[...pageOrder].map(identity => byIdentity.get(identity)!),
+    ...merged.filter(resource => !pageOrder.has(resourceIdentity(resource))),
+  ];
   const replacement = previous
     ? {
         ...incoming,
         id: previous.id,
-        resources: dedupeResources([...previous.resources, ...incoming.resources]),
+        resources,
       }
-    : { ...incoming, resources: dedupeResources(incoming.resources) };
+    : { ...incoming, resources };
   return mergeCaptures(
     current.filter((capture) => capture.pageUrl !== incoming.pageUrl),
     [replacement],

@@ -992,16 +992,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const allowedCapture = filterExcludedCapture(capture, exclusions);
     if (!allowedCapture) return { captures: previous, exclusions, savedCapture: undefined };
     const existing = previous.find(page => page.pageUrl === capture.pageUrl);
-    if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
-      const known = new Map(existing.resources.map(resource => [resourceIdentity(resource), resource]));
-      const fields = ["label", "alt", "description", "width", "height", "mimeType"] as const;
-      if (allowedCapture.resources.every(resource => {
-        const old = known.get(resourceIdentity(resource));
-        return old && fields.every(field => old[field] === resource[field]);
-      })) return { captures: previous, exclusions, savedCapture: existing };
-    }
     const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
+    if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
+      const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved"] as const;
+      if (savedCapture?.resources.length === existing.resources.length && savedCapture.resources.every((resource, index) => {
+        const old = existing.resources[index];
+        return fields.every(field => old[field] === resource[field]);
+      })) return { captures: previous, exclusions, savedCapture: existing };
+    }
     return { captures: next, exclusions, savedCapture };
   });
 

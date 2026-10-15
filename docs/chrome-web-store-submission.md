@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.6`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release adds optional local 2×/4× image resizing for single downloads, bulk ZIPs, and previews. It increases pixel dimensions without AI reconstruction. Original size remains the default, and previews show the resulting pixel dimensions. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.7`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release keeps images in the webpage’s rendered order across initial scans, manual rescans, and automatic updates. Background images, blobs, shadow roots, and accessible embedded frames take their place among regular images. Reordering preserves saved choices and previously collected resources; older resources absent from the current page follow the current images. Rescan older pages to refresh their order. Optional local 2×/4× resizing remains available. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access. No new permission is needed for image ordering.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -55,7 +55,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.6. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.7. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 

@@ -44,9 +44,32 @@ class Cdp {
 const sharp = createRequire(createRequire(import.meta.url).resolve("next/package.json", { paths: [resolve("apps/web")] }))("sharp");
 const png = await sharp({ create: { width: 200, height: 140, channels: 3, background: "#0b57d0" } }).png().toBuffer();
 const server = createServer((request, response) => {
-  const path = new URL(request.url, "http://localhost").pathname;
+  const url = new URL(request.url, "http://localhost");
+  const path = url.pathname;
   if (path.endsWith(".png")) { response.writeHead(200, { "Content-Type": "image/png" }).end(png); return; }
   if (path === "/favicon.svg") { response.writeHead(200, { "Content-Type": "image/svg+xml" }).end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#0b57d0"/></svg>'); return; }
+  const image = (name, title, attributes = '') => `<img src="/order-${name}.png" alt="${title}" width="200" height="140" ${attributes}>`;
+  const style = '<style>body{margin:0}img,video,iframe{display:block}#flex{display:flex;flex-direction:column}#row{display:flex;flex-direction:row-reverse;width:400px}#background,#pseudo{width:200px;height:140px}#pseudo::before{content:"";display:block;width:200px;height:140px;background-image:url(/order-pseudo.png)}</style>';
+  if (path === '/order-frame') {
+    const second = url.searchParams.has('second');
+    response.writeHead(200, { 'Content-Type': 'text/html' }).end(`<!doctype html><title>Ordered frame</title>${style}${image(second ? 'second-before' : 'frame-before', second ? 'Second frame before' : 'Frame before')}${second ? '' : '<iframe src="/order-nested" width="220" height="160"></iframe>'}${image(second ? 'second-after' : 'frame-after', second ? 'Second frame after' : 'Frame after')}`);
+    return;
+  }
+  if (path === '/order-nested') {
+    response.writeHead(200, { 'Content-Type': 'text/html' }).end(`<!doctype html><title>Nested</title>${style}${image('nested', 'Nested frame')}`);
+    return;
+  }
+  if (path === '/order') {
+    response.writeHead(200, { 'Content-Type': 'text/html' }).end(`<!doctype html><title>Ordered gallery</title><link rel="icon" href="/favicon.svg">${style}
+      <div id="flex">${image('bottom', 'Flex third', 'id="flex-third" style="order:3"')}<div id="background" aria-description="Background first" style="order:1;background-image:url(/order-background.png)"></div><div style="order:2"><img id="blob" alt="Blob second" width="200" height="140"></div></div>
+      <div id="row">${image('right', 'Row right')}${image('left', 'Row left')}</div>
+      ${image('regular', 'Regular image', 'id="regular"')}<div id="ordered-shadow"></div><div id="pseudo" aria-description="Pseudo before frame"></div>
+      <iframe src="/order-frame" width="220" height="470"></iframe><video poster="/order-poster.png" aria-label="Poster image" width="200" height="140"></video>
+      ${image('end', 'Last image', 'id="last-image"')}<iframe src="/order-frame?second=1" width="220" height="300"></iframe>
+      <div style="width:200px;height:140px;background-image:url(/order-background.png)"></div>${image('hidden', 'Hidden image', 'hidden style="display:none"')}
+      <script>document.querySelector('#ordered-shadow').attachShadow({mode:'open'}).innerHTML=${JSON.stringify(image('shadow', 'Shadow image'))};(async()=>{const blob=await(await fetch('/order-blob.png')).blob();const image=document.querySelector('#blob');image.src=URL.createObjectURL(blob);await image.decode();window.__orderReady=true;})();</script>`);
+    return;
+  }
   response.writeHead(200, { "Content-Type": "text/html" }).end(`<!doctype html><title>${path === "/frame" ? "Frame" : "Auto gallery"}</title><link rel="icon" href="/favicon.svg"><div id="shadow-host"></div>${path === "/frame" ? '<img src="/frame.png" alt="Frame image" width="200" height="140">' : Array.from({ length: 12 }, (_, i) => `<img id="image-${i}" src="/image-${i}.png" alt="Image ${i}" width="200" height="140">`).join("")}`);
 });
 await new Promise(done => server.listen(0, "127.0.0.1", done));
@@ -272,7 +295,57 @@ try {
   assert.equal(await panel.evaluate("window.__permissionRequests"), 0);
   const manifest = await panel.evaluate("chrome.runtime.getManifest()");
   assert.ok(!manifest.permissions.includes("tabs"), "Automatic updates must not add broad tab access");
-  console.log("PASS automatic updates: first-scan consent per tab/origin; dynamic images, shadow roots and frames; Pause/Resume; stale results discarded; hidden/inactive tabs; same-origin navigation; cross-origin access loss; management exclusions; session reset; zero permission prompts.");
+
+  const orderUrl = base + '/order';
+  await source.send('Page.navigate', { url: orderUrl });
+  await until(() => source.evaluate("document.readyState==='complete'&&window.__orderReady"), 'Ordered fixture did not finish loading');
+  await manual();
+  const names = page => page.resources.filter(resource => resource.kind === 'image').map(resource => resource.description || resource.alt || resource.label);
+  const initialOrder = ['Background first', 'Blob second', 'Flex third', 'Row left', 'Row right', 'Regular image', 'Shadow image', 'Pseudo before frame', 'Frame before', 'Nested frame', 'Frame after', 'Poster image', 'Last image', 'Second frame before', 'Second frame after', 'Hidden image'];
+  const waitOrder = (expected, message) => until(async () => JSON.stringify(names(await current(orderUrl) ?? { resources: [] })) === JSON.stringify(expected), message);
+  await waitOrder(initialOrder, 'Initial image order differs from rendered page order');
+  const ordered = await current(orderUrl);
+  assert.ok(ordered.resources.every(resource => !('position' in resource)), 'Temporary layout coordinates must not be stored');
+  const stable = ordered.resources.find(resource => resource.alt === 'Regular image');
+  await panel.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>{data['allhere.library.v1'].find(page=>page.pageUrl===${JSON.stringify(orderUrl)}).resources.find(resource=>resource.id===${JSON.stringify(stable.id)}).saved=true;return chrome.storage.local.set(data);})`);
+  const albumNames = await panel.evaluate(`[...document.querySelectorAll('[data-album-page="${ordered.id}"] [data-album-category="images"] .resource-album__tile')].map(button=>button.getAttribute('aria-label').replace(/^Preview /,''))`);
+  assert.deepEqual(albumNames, initialOrder.slice(0, 10), 'Image album must keep source order');
+  await click('[data-resource-tab="images"]'); await click('[aria-label="Grid view"]');
+  await until(() => panel.evaluate(`document.querySelectorAll('.resource-card').length===${initialOrder.length}`), 'Ordered grid did not render');
+  assert.deepEqual(await panel.evaluate("[...document.querySelectorAll('.resource-card')].map(button=>button.getAttribute('aria-label'))"), initialOrder, 'Image grid must keep source order');
+  await record('order');
+  await click('[aria-label="List view"]');
+  assert.deepEqual(await panel.evaluate("[...document.querySelectorAll('.table-name strong')].map(element=>element.textContent)"), initialOrder, 'Image list must keep source order');
+
+  await click('.auto-updates__toggle');
+  await source.evaluate("(async()=>{document.body.prepend(document.querySelector('#last-image'));const image=new Image();image.src='/order-new.png';image.alt='New first';image.width=200;image.height=140;document.body.prepend(image);await image.decode();})()");
+  const manualOrder = ['New first', 'Last image', ...initialOrder.filter(name => name !== 'Last image')];
+  await click('.button--scan');
+  await waitOrder(manualOrder, 'Manual rescan retained the old order or appended a new first image');
+  await until(() => panel.evaluate("document.querySelector('.button--scan').disabled===false"), 'Ordered manual scan stayed busy');
+  assert.equal(await state(), 'paused', 'Reordering must preserve Pause');
+  await click('.auto-updates__toggle');
+  await source.evaluate("document.querySelector('#background').style.order='4'");
+  const autoOrder = [...manualOrder];
+  autoOrder.splice(autoOrder.indexOf('Background first'), 1);
+  autoOrder.splice(autoOrder.indexOf('Flex third') + 1, 0, 'Background first');
+  await waitOrder(autoOrder, 'An automatic scan ignored an order-only CSS change');
+  const afterMove = (await current(orderUrl)).resources.find(resource => resource.id === stable.id);
+  assert.ok(afterMove?.saved, 'Reordering must preserve resource IDs and bookmarks');
+  const unchangedAt = (await current(orderUrl)).capturedAt;
+  await source.evaluate("document.body.setAttribute('class','same-layout')");
+  await delay(4200);
+  assert.equal((await current(orderUrl)).capturedAt, unchangedAt, 'Unchanged ordering must not rewrite the library');
+  await source.evaluate("document.querySelector('#flex-third').remove()");
+  const retainedOrder = [...autoOrder.filter(name => name !== 'Flex third'), 'Flex third'];
+  await waitOrder(retainedOrder, 'Previously captured missing images must be retained after current page images');
+  const persisted = await current(orderUrl);
+  await panel.send('Page.reload');
+  await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), 'Panel did not reload after ordering');
+  assert.deepEqual(names(await current(orderUrl)), names(persisted), 'Image order must persist after reopening');
+  assert.equal(await state(), 'manual', 'Ordering must not change scan authorization');
+  assert.equal(await panel.evaluate('window.__permissionRequests'), 0, 'Ordering must never request additional site access');
+  console.log("PASS automatic updates and webpage image order: CSS flex/row order, backgrounds, pseudo-elements, blobs, shadow roots, nested/sibling frames, duplicate first appearances, hidden images, albums/grid/list, manual and order-only automatic updates, stable bookmarks/IDs, unchanged-scan no-op, retained older images, reopen persistence, consent, Pause/Resume, management exclusions, and zero permission prompts.");
 } finally {
   try { await controller?.send("Browser.close"); } catch { /* Already closed. */ }
   for (const client of [panel, source, other, controller]) client?.close();

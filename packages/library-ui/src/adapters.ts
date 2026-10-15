@@ -31,6 +31,7 @@ type RawResource = {
   width?: number;
   height?: number;
   mimeType?: string;
+  position?: [top: number, left: number, documentIndex: number];
 };
 
 type RawPageScan = {
@@ -38,7 +39,42 @@ type RawPageScan = {
   pageTitle: string;
   faviconUrl?: string;
   resources: RawResource[];
+  framePath?: number[];
+  frames?: Array<{ index: number; position?: RawResource["position"] }>;
 };
+
+function orderedPageResources(scans: RawPageScan[]): RawResource[] {
+  const byPath = new Map(scans.filter(scan => scan.framePath).map(scan => [scan.framePath!.join("/"), scan]));
+  const visited = new Set<RawPageScan>();
+  const resources: RawResource[] = [];
+  const visit = (scan: RawPageScan) => {
+    if (visited.has(scan)) return;
+    visited.add(scan);
+    const entries: Array<{ position?: RawResource["position"]; resource?: RawResource; frame?: RawPageScan }> = [
+      ...scan.resources.map(resource => ({ position: resource.position, resource })),
+      ...(scan.frames ?? []).flatMap(frame => {
+        const child = byPath.get([...(scan.framePath ?? []), frame.index].join("/"));
+        return child ? [{ position: frame.position, frame: child }] : [];
+      }),
+    ];
+    entries.sort((left, right) => {
+      for (let index = 0; index < 3; index++) {
+        const difference = (left.position?.[index] ?? Number.MAX_SAFE_INTEGER) - (right.position?.[index] ?? Number.MAX_SAFE_INTEGER);
+        if (difference) return difference;
+      }
+      return 0;
+    });
+    for (const entry of entries) {
+      if (entry.resource) resources.push(entry.resource);
+      else if (entry.frame) visit(entry.frame);
+    }
+  };
+  const root = scans.find(scan => scan.framePath?.length === 0) ?? scans[0];
+  if (root) visit(root);
+  // Keep detached frames' available resources when their parent has changed.
+  scans.forEach(visit);
+  return resources;
+}
 
 type StorageChange = { newValue?: unknown };
 type PageWatchPort = {
@@ -311,7 +347,9 @@ export function createExtensionAdapter(): LibraryAdapter {
         // A normal HTTP(S) page URL is required above; retain a readable fallback.
       }
 
-      const resources: CapturedResource[] = dedupeResources(injected.flatMap((frame) => frame.result?.resources ?? []).map((resource) => ({
+      const scans = [...injected].sort((left, right) => (left.frameId ?? 0) - (right.frameId ?? 0))
+        .flatMap(frame => frame.result ? [frame.result] : []);
+      const resources: CapturedResource[] = dedupeResources(orderedPageResources(scans).map(({ position: _position, ...resource }) => ({
         ...resource,
         id: createId("resource"),
         pageUrl: scan.pageUrl,
@@ -336,20 +374,22 @@ export function createExtensionAdapter(): LibraryAdapter {
 async function collectPageResources(): Promise<RawPageScan> {
   const resources: RawResource[] = [];
   const resourceIndexes = new Map<string, number>();
-  const blobImages = new Map<string, { kind: "image" | "icon"; label: string; extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType"> }>();
-  const spriteIcons = new Map<string, { label: string; width: number; height: number }>();
-  const fontIcons = new Map<string, { glyph: string; label: string; family: string; font: string; color: string; direction: CanvasDirection; size: number }>();
+  const blobImages = new Map<string, { kind: "image" | "icon"; label: string; extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position"> }>();
+  const spriteIcons = new Map<string, { label: string; width: number; height: number; position?: RawResource["position"] }>();
+  const fontIcons = new Map<string, { glyph: string; label: string; family: string; font: string; color: string; direction: CanvasDirection; size: number; position?: RawResource["position"] }>();
   const pageUrl = window.location.href;
   const pageTitle = document.title || window.location.hostname;
+  let pageElements: Element[] | undefined;
   const queryAll = <T extends Element>(selector: string): T[] => {
+    if (pageElements) return pageElements.filter(element => element.matches(selector)) as T[];
     const found: T[] = [];
-    const visit = (root: Document | ShadowRoot) => {
-      found.push(...root.querySelectorAll<T>(selector));
-      root.querySelectorAll<HTMLElement>("*").forEach((element) => {
-        if (element.shadowRoot) visit(element.shadowRoot);
-      });
-    };
-    visit(document);
+    const pending = [...document.children].reverse();
+    while (pending.length) {
+      const element = pending.pop()!;
+      if (element.matches(selector)) found.push(element as T);
+      const children = [...(element.shadowRoot?.children ?? []), ...element.children];
+      for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+    }
     return found;
   };
   const faviconUrl = document.querySelector<HTMLLinkElement>('link[rel~="icon"]')?.href;
@@ -367,6 +407,51 @@ async function collectPageResources(): Promise<RawPageScan> {
     ]);
   }
   const loadedRequests = new Set<string>();
+  pageElements = queryAll<Element>("*");
+  const documentIndexes = new Map(pageElements.map((element, index) => [element, index]));
+  const positions = new WeakMap<Element, NonNullable<RawResource["position"]>>();
+  const positionFor = (element: Element): NonNullable<RawResource["position"]> => {
+    const previous = positions.get(element);
+    if (previous) return previous;
+    const bounds = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const rendered = bounds.width > 0 && bounds.height > 0 && style.visibility !== "hidden" && style.visibility !== "collapse";
+    const position: NonNullable<RawResource["position"]> = [
+      rendered ? Math.round(bounds.top + window.scrollY) : Number.MAX_SAFE_INTEGER,
+      rendered ? Math.round(bounds.left + window.scrollX) : Number.MAX_SAFE_INTEGER,
+      documentIndexes.get(element) ?? Number.MAX_SAFE_INTEGER,
+    ];
+    positions.set(element, position);
+    return position;
+  };
+  const firstPosition = (left?: RawResource["position"], right?: RawResource["position"]) => {
+    if (!left) return right;
+    if (!right) return left;
+    for (let index = 0; index < 3; index++) {
+      if (left[index] !== right[index]) return left[index] < right[index] ? left : right;
+    }
+    return left;
+  };
+  // Frame indices are readable across origins without a new site grant.
+  // Each parent supplies the iframe's position among its own resources.
+  const framePath: number[] = [];
+  try {
+    let current: Window = window;
+    while (current !== current.top) {
+      const parent = current.parent;
+      let index = 0;
+      while (index < parent.length && parent.frames[index] !== current) index++;
+      if (index === parent.length) break;
+      framePath.unshift(index);
+      current = parent;
+    }
+  } catch { /* A detached frame can still contribute its available resources. */ }
+  const frames = queryAll<HTMLIFrameElement | HTMLFrameElement>("iframe, frame").flatMap(frame => {
+    for (let index = 0; index < window.length; index++) {
+      if (window.frames[index] === frame.contentWindow) return [{ index, position: positionFor(frame) }];
+    }
+    return [];
+  });
   const resizeParameters = new Set([
     "dpr", "fm", "format", "h", "height", "imwidth", "q", "quality", "sz", "w", "width",
   ]);
@@ -434,7 +519,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     kind: ResourceKind,
     rawUrl: string | undefined,
     label: string,
-    extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType"> = {},
+    extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position"> = {},
   ) => {
     if (!rawUrl) return;
     let url: string;
@@ -442,7 +527,8 @@ async function collectPageResources(): Promise<RawPageScan> {
       const parsed = new URL(rawUrl, pageUrl);
       if (browserOnlyProtocols.has(parsed.protocol)) return;
       if ((kind === "image" || kind === "icon") && parsed.protocol === "blob:") {
-        blobImages.set(parsed.href, { kind, label, extras });
+        const previous = blobImages.get(parsed.href);
+        blobImages.set(parsed.href, { kind, label, extras: { ...extras, position: firstPosition(previous?.extras.position, extras.position) } });
         return;
       }
       if (kind === "image" && !["http:", "https:", "data:"].includes(parsed.protocol)) return;
@@ -487,6 +573,7 @@ async function collectPageResources(): Promise<RawPageScan> {
           label: descriptive(winner.label) ? winner.label : descriptive(nextResource.label) ? nextResource.label : descriptive(existing.label) ? existing.label : winner.label,
           alt: winner.alt || nextResource.alt || existing.alt,
           description: winner.description || nextResource.description || existing.description,
+          position: firstPosition(existing.position, nextResource.position),
         };
       }
       return;
@@ -502,6 +589,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     'link[rel~="icon"][href], link[rel~="apple-touch-icon"][href], link[rel~="mask-icon"][href]',
   ).forEach((link) => {
     add("icon", link.href, link.title || link.getAttribute("sizes") || "Page icon", {
+      position: positionFor(link),
       mimeType: link.type || undefined,
     });
   });
@@ -530,6 +618,7 @@ async function collectPageResources(): Promise<RawPageScan> {
       image.getAttribute("aria-label"),
     ].map(cleanDescription).find(usefulDescription);
     add(isIcon ? "icon" : "image", image.currentSrc || image.src, image.alt || image.title || (isIcon ? "Page icon" : "Image"), {
+      position: positionFor(image),
       alt: image.alt || undefined,
       description,
       width: image.naturalWidth,
@@ -570,6 +659,7 @@ async function collectPageResources(): Promise<RawPageScan> {
           spriteIcons.set(new URL(reference, pageUrl).href, {
             label: svg.getAttribute("aria-label") || "SVG sprite icon",
             width: Math.round(bounds.width), height: Math.round(bounds.height),
+            position: firstPosition(spriteIcons.get(new URL(reference, pageUrl).href)?.position, positionFor(svg)),
           });
         } catch { /* Ignore a malformed sprite address without dropping the scan. */ }
         unresolvedReference = true;
@@ -581,7 +671,7 @@ async function collectPageResources(): Promise<RawPageScan> {
       if (/^https?:/i.test(reference) || reference.startsWith("/")) {
         const description = [svg.getAttribute("aria-label"), svg.querySelector("title")?.textContent]
           .map(cleanDescription).find(usefulDescription);
-        add("image", reference, description || "SVG image layer", { description });
+        add("image", reference, description || "SVG image layer", { description, position: positionFor(svg) });
         externalImage = true;
       } else if (reference && !/^#|^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon);base64,/i.test(reference)) {
         externalImage = true;
@@ -617,6 +707,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
     const label = svg.getAttribute("aria-label") || svg.querySelector("title")?.textContent?.trim() || svg.id || "Inline SVG icon";
     add("icon", dataUrl, label, {
+      position: positionFor(svg),
       width: Math.round(bounds.width),
       height: Math.round(bounds.height),
       mimeType: "image/svg+xml",
@@ -629,6 +720,7 @@ async function collectPageResources(): Promise<RawPageScan> {
 
   queryAll<HTMLVideoElement>("video").forEach((video) => {
     add("video", video.currentSrc || video.src || supportedSource(video), video.title || "Video", {
+      position: positionFor(video),
       width: video.videoWidth || video.width || undefined,
       height: video.videoHeight || video.height || undefined,
       mimeType: video.querySelector<HTMLSourceElement>("source[src]")?.type || undefined,
@@ -636,7 +728,7 @@ async function collectPageResources(): Promise<RawPageScan> {
   });
 
   queryAll<HTMLAudioElement>("audio").forEach((audio) => {
-    add("audio", audio.currentSrc || audio.src || supportedSource(audio), audio.title || "Audio");
+    add("audio", audio.currentSrc || audio.src || supportedSource(audio), audio.title || "Audio", { position: positionFor(audio) });
   });
 
   queryAll<HTMLSourceElement>("video source[src], audio source[src]").forEach((source) => {
@@ -644,6 +736,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     if (!media || supportedSource(media) !== source.src) return;
     const kind: ResourceKind = media.tagName.toLowerCase() === "video" ? "video" : "audio";
     add(kind, source.src, source.title || source.type || "Media source", {
+      position: positionFor(media),
       mimeType: source.type || undefined,
     });
   });
@@ -651,19 +744,20 @@ async function collectPageResources(): Promise<RawPageScan> {
   queryAll<HTMLVideoElement>("video[poster]").forEach((video) => {
     const description = [video.getAttribute("title"), video.getAttribute("aria-label")]
       .map(cleanDescription).find(usefulDescription);
-    add("image", video.poster, "Video poster image", { description });
+    add("image", video.poster, "Video poster image", { description, position: positionFor(video) });
   });
 
   queryAll<HTMLIFrameElement>("iframe[src]").forEach((frame) => {
-    add("link", frame.src, frame.title || "Embedded page");
+    add("link", frame.src, frame.title || "Embedded page", { position: positionFor(frame) });
   });
 
   queryAll<HTMLLinkElement>('link[rel~="stylesheet"][href]').forEach((link) => {
-    add("stylesheet", link.href, link.title || "Stylesheet", { mimeType: "text/css" });
+    add("stylesheet", link.href, link.title || "Stylesheet", { mimeType: "text/css", position: positionFor(link) });
   });
 
   queryAll<HTMLScriptElement>("script[src]").forEach((script) => {
     add("script", script.src, script.title || "Script", {
+      position: positionFor(script),
       mimeType: script.type || "text/javascript",
     });
   });
@@ -671,6 +765,7 @@ async function collectPageResources(): Promise<RawPageScan> {
   queryAll<HTMLElement>("object[data], embed[src]").forEach((node) => {
     const url = node instanceof HTMLObjectElement ? node.data : (node as HTMLEmbedElement).src;
     add("document", url, node.getAttribute("title") || node.getAttribute("type") || "Embedded file", {
+      position: positionFor(node),
       mimeType: node.getAttribute("type") || undefined,
     });
   });
@@ -707,6 +802,7 @@ async function collectPageResources(): Promise<RawPageScan> {
                     ? "other"
                     : "link";
     add(kind, url, anchor.download || text || anchor.getAttribute("aria-label") || anchor.title || url, {
+      position: positionFor(anchor),
       mimeType: kind === "font"
         ? fontMimeTypes[extension]
         : kind === "icon"
@@ -735,6 +831,7 @@ async function collectPageResources(): Promise<RawPageScan> {
           const font = `${style.fontStyle} ${style.fontWeight} ${size}px ${fontFamily}`;
           const key = JSON.stringify([glyph, font, style.color, style.direction]);
           if (!fontIcons.has(key)) fontIcons.set(key, {
+            position: positionFor(element),
             glyph, family: fontFamily, font, color: style.color,
             direction: style.direction === "rtl" ? "rtl" : "ltr", size,
             label: element.getAttribute("aria-label") || element.getAttribute("title") ||
@@ -758,7 +855,7 @@ async function collectPageResources(): Promise<RawPageScan> {
             element.getAttribute("aria-description"), element.getAttribute("aria-label"),
             element.getAttribute("title"), element.getAttribute("data-description"), element.getAttribute("data-caption"),
           ].map(cleanDescription).find(usefulDescription) : undefined;
-          add(isIcon ? "icon" : "image", match[1], isIcon ? "Background icon" : "Background image", { description });
+          add(isIcon ? "icon" : "image", match[1], isIcon ? "Background icon" : "Background image", { description, position: positionFor(element) });
         }
       }
     }
@@ -801,6 +898,7 @@ async function collectPageResources(): Promise<RawPageScan> {
         (128 / scale - height) / 2 + metrics.actualBoundingBoxAscent);
       if (!context.getImageData(0, 0, 128, 128).data.some((value, index) => index % 4 === 3 && value > 0)) continue;
       add("icon", canvas.toDataURL("image/png"), icon.label, {
+        position: icon.position,
         width: 128, height: 128, mimeType: "image/png",
         description: `${icon.label} · ${icon.family.replace(/["']/g, "")} font icon`,
       });
@@ -867,7 +965,7 @@ async function collectPageResources(): Promise<RawPageScan> {
 
   const spriteDocuments = new Map<string, Promise<Document | undefined>>();
   for (const [reference, icon] of spriteIcons) {
-    const fallback = () => add("icon", reference, icon.label, { width: icon.width, height: icon.height, mimeType: "image/svg+xml" });
+    const fallback = () => add("icon", reference, icon.label, { width: icon.width, height: icon.height, mimeType: "image/svg+xml", position: icon.position });
     try {
       const spriteUrl = new URL(reference);
       const symbolId = decodeURIComponent(spriteUrl.hash.slice(1));
@@ -903,6 +1001,7 @@ async function collectPageResources(): Promise<RawPageScan> {
         });
       });
       add("icon", `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(standalone))}`, icon.label, {
+        position: icon.position,
         width: icon.width, height: icon.height, mimeType: "image/svg+xml",
       });
     } catch { fallback(); }
@@ -937,5 +1036,5 @@ async function collectPageResources(): Promise<RawPageScan> {
     }
   }
 
-  return { pageUrl, pageTitle, faviconUrl, resources };
+  return { pageUrl, pageTitle, faviconUrl, resources, framePath, frames };
 }

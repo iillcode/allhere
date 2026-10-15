@@ -29,6 +29,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 ## Capabilities and Constraints
 
 - Gather images, links, media, and file/resource URLs present in a webpage.
+- Keep captured images in the webpage’s rendered reading order, including CSS backgrounds, shadow roots, and accessible frames. Refresh that order on rescans while preserving saved choices and older collected resources.
 - Offer optional local 2×/4× image resizing in previews, individual downloads, and bulk ZIPs. Keep Original size as the default and explain that resizing increases dimensions without reconstructing missing detail.
 - Show resource details and clear security signals, especially for links.
 - Use local heuristics for security flags; do not imply that a heuristic proves a destination is safe.

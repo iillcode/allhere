@@ -30,7 +30,7 @@
       if (!root || roots.has(root)) return;
       roots.add(root);
       observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true,
-        attributeFilter: ["src", "srcset", "href", "poster", "style", "data", "width", "height", "class", "alt", "title", "aria-label", "download", "type", "rel",
+        attributeFilter: ["src", "srcset", "href", "poster", "style", "data", "width", "height", "class", "hidden", "slot", "dir", "alt", "title", "aria-label", "download", "type", "rel",
           "data-src", "data-srcset", "data-original", "data-lazy-src", "d", "points", "viewBox", "fill", "stroke", "mask", "clip-path", "xlink:href", "fonticon", "data-mat-icon-name", "data-mat-icon-type"] });
       for (const element of root.querySelectorAll("*")) if (element.shadowRoot) discover(element.shadowRoot);
     };
@@ -64,9 +64,11 @@
       document.removeEventListener("load", loaded, true);
       document.fonts?.removeEventListener("loadingdone", signal);
       window.removeEventListener("pagehide", stop);
+      window.removeEventListener("resize", signal);
     }
     port.onDisconnect.addListener(stop);
     window.addEventListener("pagehide", stop, { once: true });
+    window.addEventListener("resize", signal);
     document.addEventListener("load", loaded, true);
     document.fonts?.addEventListener("loadingdone", signal);
     discover(document);
