@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 const questions = [
   { question: "What does Scan page collect?", answer: "Allhere gathers the resource addresses it can access on the current page: images, icons, fonts, links, video and audio, and files. Each resource stays associated with its source page. Some embedded or protected resources may not be accessible." },
-  { question: "Does Allhere scan pages automatically?", answer: "No. Click Allhere's toolbar icon on the webpage, then choose Scan page. On a new tab or after moving to a different site, click the toolbar icon again before scanning. Scanning uses temporary tab access and does not show a site-access prompt. Opening the panel, switching tabs, navigating, and page changes do not start a scan. Collections stay in your browser's local extension storage." },
+  { question: "Does Allhere scan pages automatically?", answer: "First click Allhere’s toolbar icon and choose Scan page. The panel explains that this also starts automatic updates for that tab while it is active and the panel is visible. Pause or resume updates in the header. Same-origin navigation can update automatically; each new tab or different origin needs another manual scan. Hiding or closing the panel ends the automatic-update session. Collections stay locally in your browser." },
   { question: "Where is my collection stored?", answer: "Your collection is stored locally in the browser or extension where you created it. The extension and web library have separate storage. Export a JSON archive to keep a backup or move a collection between them; they don’t sync automatically." },
   { question: "Does a link signal mean a destination is safe?", answer: "No. Allhere checks visible URL patterns on your device and explains clues that may deserve a closer look. These local heuristics are context, not a safety guarantee or an external reputation check." },
   { question: "How do I install the Chrome extension?", answer: "Allhere is currently a developer preview for desktop Chrome 114 or later. Download the ZIP, extract it, turn on Developer mode in Chrome’s extensions page, and choose Load unpacked to select the extracted folder.", setup: true },
@@ -53,7 +53,7 @@ export default function HomePage() {
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.container}>
             <h1 id="hero-title">Good finds.<br /><span>All in one place.</span></h1>
-            <p className={styles.heroDescription}>Your working library for the web. Choose Scan page to collect images, links, fonts, and files from the active webpage, then browse your locally saved collection beside your work.</p>
+            <p className={styles.heroDescription}>Your working library for the web. Choose Scan page to collect images, links, fonts, and files from the active webpage, and keep this tab’s collection updated while the panel is open. Browse everything locally beside your work.</p>
             <div className={styles.heroActions}><DownloadButton /><a className={styles.textLink} href="#extension-demo">See Allhere in action<Icon name="arrow" /></a></div>
             <p className={styles.installNote}>For desktop Chrome 114+ · Developer preview <span aria-hidden="true">·</span> <a href="/install">Manual setup guide</a></p>
           </div>

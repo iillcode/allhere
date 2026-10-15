@@ -29,9 +29,10 @@ export function createDemoAdapter(): LibraryAdapter {
   const listeners = new Set<(captures: PageCaptures) => void>();
 
   return {
-    getActivePage: async () => ({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0 }),
+    getActivePage: async () => ({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0, accessEpoch: 0 }),
+    watchPage: async () => () => {},
     subscribeActivePage: (listener) => {
-      listener({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0 });
+      listener({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0, accessEpoch: 0 });
       return () => {};
     },
     load: async () => captures,

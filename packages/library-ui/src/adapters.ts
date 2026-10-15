@@ -19,6 +19,7 @@ export type LibraryAdapter = {
   captureCurrentPage?: (requestedPage?: ActivePage) => Promise<PageCapture>;
   getActivePage?: () => Promise<ActivePage>;
   subscribeActivePage?: (listener: (page: ActivePage) => void) => () => void;
+  watchPage?: (page: ActivePage, onChange: () => void) => Promise<() => void>;
 };
 
 type RawResource = {
@@ -40,8 +41,16 @@ type RawPageScan = {
 };
 
 type StorageChange = { newValue?: unknown };
+type PageWatchPort = {
+  disconnect: () => void;
+  onMessage: { addListener: (listener: (message: { type?: string }) => void) => void };
+  onDisconnect: { addListener: (listener: () => void) => void };
+};
 
 type ChromeLike = ActivePageBrowser & {
+  tabs?: ActivePageBrowser["tabs"] & {
+    connect: (tabId: number, options: { frameId: number; name: string }) => PageWatchPort;
+  };
   storage?: {
     local?: {
       get: (key: string) => Promise<Record<string, unknown>>;
@@ -161,6 +170,55 @@ export function createExtensionAdapter(): LibraryAdapter {
   return {
     getActivePage: activePages.getActivePage,
     subscribeActivePage: activePages.subscribeActivePage,
+    watchPage: async (page, onChange) => {
+      const api = chromeApi();
+      if (!api?.tabs?.connect || !api.scripting || page.tabId === undefined) throw new Error("Automatic updates require the installed extension.");
+      const tabs = api.tabs;
+      const tabId = page.tabId;
+      const matches = async () => {
+        const current = await activePages.getActivePage();
+        return current.tabId === page.tabId && current.url === page.url && current.revision === page.revision && current.accessEpoch === page.accessEpoch;
+      };
+      if (!await matches()) throw new Error("The active page changed.");
+      let stopped = false;
+      let connecting = false;
+      const ports = new Map<number, PageWatchPort>();
+      const connectFrames = async () => {
+        if (stopped || connecting) return;
+        connecting = true;
+        try {
+          if (!await matches()) throw new Error("The active page changed.");
+          let frames;
+          try { frames = await api.scripting!.executeScript({ target: { tabId: page.tabId!, allFrames: true }, files: ["auto-updates.js"] }); }
+          catch { frames = await api.scripting!.executeScript({ target: { tabId: page.tabId! }, files: ["auto-updates.js"] }); }
+          if (stopped) return;
+          if (!await matches()) throw new Error("The active page changed.");
+          for (const frameId of new Set(frames.map(frame => frame.frameId ?? 0))) {
+            if (ports.has(frameId)) continue;
+            const port = tabs.connect(tabId, { name: "allhere.auto-updates", frameId });
+            port.onMessage.addListener(message => {
+              if (stopped) return;
+              if (message?.type === "frames") void connectFrames().catch(() => onChange());
+              if (message?.type === "changed") onChange();
+            });
+            port.onDisconnect.addListener(() => {
+              // Read lastError to consume Chrome's missing-frame diagnostic.
+              void (globalThis as typeof globalThis & { chrome?: { runtime?: { lastError?: unknown } } }).chrome?.runtime?.lastError;
+              if (ports.get(frameId) === port) ports.delete(frameId);
+              if (!stopped) onChange();
+            });
+            ports.set(frameId, port);
+          }
+        } finally { connecting = false; }
+      };
+      try { await connectFrames(); }
+      catch (error) {
+        stopped = true;
+        ports.forEach(port => port.disconnect());
+        throw error;
+      }
+      return () => { stopped = true; ports.forEach(port => port.disconnect()); };
+    },
     load,
     loadExclusions: async () => {
       const storage = chromeApi()?.storage?.local;

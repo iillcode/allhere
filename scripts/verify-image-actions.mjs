@@ -120,6 +120,10 @@ try {
   }, "The extension page did not open");
   page = new Cdp(target.webSocketDebuggerUrl);
   await page.ready();
+  if (scanOnly) {
+    // The fixture is an extension tab; model a continuously visible side panel.
+    await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
+  }
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 1, mobile: false });
   await browserCdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloads, eventsEnabled: true });
   await until(() => page.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "The library did not render");
@@ -698,6 +702,8 @@ try {
       const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
       await expectScanState('ready');
       assert.equal(await page.evaluate("document.querySelector('.button--scan span:last-child').textContent"),'Scan again','Successful scans need a text indication as well as color');
+      await until(()=>page.evaluate("Boolean(document.querySelector('.auto-updates__toggle'))"),'The scan must expose its Pause control');
+      await page.evaluate("document.querySelector('.auto-updates__toggle').click()",true);
       await recordScanState('ready');
       const cdnIcon=base.replace('127.0.0.1','localhost')+'/cdn-favicon.png';
       await live.evaluate(`document.querySelector('link[rel=icon]').href=${JSON.stringify(cdnIcon)}`);
@@ -766,6 +772,9 @@ try {
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       const withGlyph=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph')?value:null},'Manual scan did not collect a dynamic font glyph');
       const originalGlyph=withGlyph.resources.find(item=>item.label==='Dynamic font glyph').url;
+      // Storage is updated before the scan finishes its metadata/session checks.
+      // A real user must wait for the disabled Scan button before clicking again.
+      await until(()=>page.evaluate("document.querySelector('.button--scan').disabled===false"),'The dynamic font-glyph scan remained busy');
       await live.evaluate("document.querySelector('[aria-label=\"Dynamic font glyph\"]').firstChild.data='N'");
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Dynamic font glyph'&&item.url!==originalGlyph)},'Manual scan did not collect a changed font icon');
@@ -795,6 +804,8 @@ try {
         assert.equal(await page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame')}))`),false,'A new tab must wait for Scan page');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Asset frame'"),'Scan page did not collect the newly active tab');
+        await until(()=>page.evaluate("Boolean(document.querySelector('.auto-updates__toggle'))"),'The new scanned tab must expose Pause');
+        await page.evaluate("document.querySelector('.auto-updates__toggle').click()",true);
         await expectScanState('ready');
         const beforeReload=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         await other.send('Page.reload');

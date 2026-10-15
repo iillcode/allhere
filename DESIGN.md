@@ -219,6 +219,8 @@ Controls use generous pill silhouettes: the search field is the soft capsule, bu
 
 ### Buttons
 
+The extension header includes a compact automatic-update row below its original 64px action row. Before a tab's first scan it explains that Scan page also keeps that tab updated while Allhere is open. Afterwards it shows Auto-updates on, paused, or on hold, with a text Pause/Resume action. Status and action text use the existing compact control size of 12px. The indicator uses existing blue and muted colors; automatic refreshes preserve the collection's selected type, view, bookmarks, and scroll. The header's left inset remains 8px and its menu stays at the outer right edge.
+
 The extension scan button uses the current tab's favicon on a small white circular plate, with a globe when Chrome withholds it or the icon fails to load. Amber fill and outline pair with **Scan page** when the active tab or document needs a manual scan. A successful scan changes it to blue **Scan again**. Reloads and navigation restore the amber state without triggering capture; switching back to an unchanged scanned tab preserves blue within the open panel session.
 
 - **Shape:** Rounded pill (`rounded.pill`).

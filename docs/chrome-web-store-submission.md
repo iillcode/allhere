@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.3`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release adds the freeform Allhere logo and current-tab favicon with amber Scan page / blue Scan again states. Scans still use temporary toolbar access and never request persistent site access.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.4`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release restores automatic resource updates only after each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans still use temporary toolbar access and never request persistent site access.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -22,30 +22,30 @@ The screenshots show the built extension after a requested scan of the live Allh
 
 **Detailed description:**
 
-Allhere turns the resources on a webpage into an organized library in Chrome's side panel. Click Allhere's toolbar icon on the webpage, then choose Scan page to collect images, icons, fonts, links, direct video and audio files, and other downloadable files. The toolbar click gives temporary tab access without a persistent site-access prompt for scanning. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Opening the panel, switching tabs, navigating, or changes to page content do not start scans. After a successful scan, choose Scan again to refresh a collection.
+Allhere turns webpage resources into an organized local library in Chrome's side panel. Click Allhere's toolbar icon, then Scan page to collect source page addresses and titles, images, icons, fonts, links, direct video/audio, and downloadable files. The panel explains before scanning that this action also enables automatic resource updates for that tab while the panel is open and visible. Pause or resume updates in the header. Updates apply only to the active, previously scanned tab and may follow navigation within the same origin. A new tab, another origin, permission loss, or a reopened panel requires a new manual scan. Scanning uses temporary tab access and never requests persistent website permission.
 
 Browse by resource type, save useful items, inspect previews, copy addresses, and download individual files or a ZIP of selected resources. Direct video and audio files are supported; YouTube videos are not extracted or downloaded.
 
 Allhere stores page addresses, resource details, selected previews, and download status locally in Chrome's extension storage. It does not sync your library to an Allhere account or send it to an Allhere analytics service. Opening previews or downloading files may contact the resources' original hosts; file actions can ask you to allow access to those specific hosts. Exporting a JSON archive or dragging a chosen file to a website shares that data only when you take that action. See the published Allhere privacy policy for details.
 
-**Reviewer instructions:** Install the extension, open a regular HTTP or HTTPS webpage containing images and links, and click the Allhere toolbar icon. This opens the panel and grants temporary access without scanning or showing a site-access dialog. Choose Scan page to collect resources. Switch tabs: the saved collection stays visible. Click the Allhere toolbar icon on the new tab, then choose Scan page to collect that tab. Repeat the toolbar click after navigating to a different site. Select a resource's menu to copy or download it; select multiple resources to create a ZIP. File actions may ask for access to the selected resource hosts; approve those requests to test fetching and conversion. No account or credentials are required.
+**Reviewer instructions:** Open a normal HTTP/HTTPS webpage, click Allhere's toolbar icon, and read the automatic-update disclosure beside the scan action. Opening the panel must not scan. Choose Scan page, then add or load resources on that page: its collection updates automatically. Pause updates and verify that changes wait; Resume collects them. A manual Scan again while paused refreshes once and keeps the pause. An unscanned tab must remain manual even if file access to its host was previously allowed. A previously scanned tab can resume when active; same-origin navigation can update, while cross-origin navigation ends consent. Hiding or closing the panel ends authorization; showing it again requires another manual scan. Manage pauses capture and automatic updates never restore deleted items. Test copying, downloading, and bulk ZIP actions separately; these may request original resource-host access. No account is required.
 
 ## Privacy practices and permission justifications
 
-Verify that `https://allhere-ten.vercel.app/privacy` describes manual scans using temporary toolbar access and optional host access for file actions before entering the URL in the dashboard. Disclose website content and browsing activity, including source page URLs, resource URLs, descriptions, and selected previews, even though the library is stored locally. Review the dashboard's current data categories for saved-item choices and download status too. Do not claim that Allhere handles no user data. Replace any previous `tabs` justification with the `activeTab` text below.
+Verify that `https://allhere-ten.vercel.app/privacy` describes the first manual scan enabling limited automatic updates, the visible Pause/Resume controls, temporary toolbar access, and optional file-host access. Disclose Website content, Web history for captured source/resource addresses, and User activity for saved choices/download status. Keep the listing, privacy fields, permission justifications, and in-product disclosure consistent; local storage does not mean no user data is handled.
 
 | Access | Why Allhere uses it |
 | --- | --- |
-| Optional HTTP and HTTPS host access | The wildcard declarations allow resource hosts discovered at runtime. User-requested file downloads, ZIP creation, SVG copying, and file-drag preparation request only the original hosts of the selected resources when required to fetch their bytes. Scanning never calls the host-permission request API. There is no required all-site access or runtime request for wildcard hosts. Optional grants persist until removed in Chrome settings. A grant may also make pages on that host accessible, but scans still require Scan page. |
-| `activeTab` | Give temporary access to the current tab when the user clicks Allhere's toolbar icon. Available tab metadata updates the scan button's favicon and manual-scan indicator while the panel is open; that interface state is not saved as a browsing log. Page resources are inspected only after Scan page is pressed. On a new tab or after navigating to another site, the user invokes the toolbar icon again. There is no broad `tabs` permission, background scanning, or use of Chrome's History API. |
-| `scripting` | Inspect the active page's resources only after Scan page is pressed and Chrome has granted temporary tab access or an existing host grant. Install the packaged file-drop helper on that requested page and its accessible frames. |
+| Optional HTTP and HTTPS host access | User-requested downloads, ZIPs, SVG copying, and drag preparation request only selected resources' original hosts. No required all-site access or runtime wildcard request is made. A file-host grant never enables scanning automatically; every tab still needs a successful manual scan before automatic updates. |
+| `activeTab` | The toolbar gives temporary access to that tab. Available metadata shows its favicon and scan state. Its first successful manual scan, with prior in-panel disclosure, enables automatic updates only while that tab is active and the panel is visible. Consent and pause state are in memory; another origin, lost access, or panel hiding or closure ends authorization. No broad tabs permission or History API is used. |
+| `scripting` | Collect accessible resource metadata after a manual scan and during the limited automatic updates it enables. Install a packaged resource watcher connected to the visible panel, and a packaged file-drop helper. Observers disconnect when updates stop; no remote code is executed. |
 | `sidePanel` | Display the resource library beside the active tab. |
 | `storage` | Keep the local library, exclusions, and download status. |
 | `unlimitedStorage` | Preserve large collections and embedded previews that may exceed Chrome's ordinary local-storage quota. |
 | `downloads` | Start, monitor, cancel, and show user-requested file downloads. |
 | `alarms` | Refresh ongoing download status after the side panel closes or the service worker restarts. |
 
-The old `declarativeNetRequestWithHostAccess` permission was used for YouTube player header rules and cleanup, which are no longer part of the product. It is absent from this release, as is the broad `tabs` permission. A button in an already open side panel does not grant `activeTab`; the toolbar click on that tab is required unless an existing allowed host makes the page accessible. The toolbar opens the panel without scanning, and the panel gives guidance if access is missing. Chrome 116+ keeps the panel open on another toolbar click; Chrome 114–115 use the built-in toggle. The file-drop helper is injected only after requested scans and does not observe resource changes. Previously granted optional site access can remain after an upgrade; users can remove it in Chrome settings. Older manually installed builds that created a dynamic YouTube rule or granted every site should be removed and reinstalled to clear that legacy state.
+The old `declarativeNetRequestWithHostAccess` permission and YouTube player rules remain removed. A button in an open panel does not grant activeTab; the toolbar click is required unless an existing host grant makes that page accessible. Permission alone never enables automatic collection. Chrome 116+ can keep the panel open on another toolbar click; Chrome 114-115 use the built-in toggle. Existing optional file-host grants can be removed in Chrome settings; removing a grant clears the current automatic-update authorization. Older legacy builds with broad grants or YouTube rules should be reinstalled to clear legacy state.
 
 Temporary tab access and optional file-host permissions reduce access granted at installation, but do not guarantee a shorter review or removal of the dashboard warning. Chrome may still review the broad optional declarations and download capabilities closely. Explain the actual narrow runtime requests; do not claim there is no user data access.
 
@@ -53,7 +53,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.3. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.4. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 
@@ -61,7 +61,7 @@ Allhere collects resources from webpages the user chooses to scan and organizes 
 
 **activeTab justification**
 
-Allhere uses temporary access to the tab where the user clicks its toolbar icon. While the panel is open, available tab metadata displays the current site's favicon and indicates when a manual scan is needed. This interface state is not saved as a browsing log. Page resources are collected only after the user presses Scan page. Opening the panel or switching tabs does not start a scan. Allhere does not read Chrome's history database.
+Allhere uses temporary access after its toolbar icon is clicked. Available tab metadata shows the favicon and scan status. Before Scan page, the panel explains that this action enables automatic resource updates for that tab while it is active and the panel is visible. Users can Pause or Resume. Each new tab or origin needs its own manual scan; panel hiding or closure or loss of access ends authorization. Collections stay local. Allhere does not read Chrome's history database.
 
 **alarms justification**
 
@@ -73,7 +73,7 @@ Allhere uses Chrome's download manager to save files the user chooses. It tracks
 
 **scripting justification**
 
-Allhere inspects resource URLs and metadata on the active webpage only after the user chooses Scan page and Chrome allows access. It injects a packaged file-drop helper on the scanned page and accessible frames so users can drop selected resources into upload fields.
+Allhere inspects resource URLs and metadata after a manual scan and during the automatic updates that action enables, only while the authorized tab is active and the panel is visible. It injects a packaged resource watcher, which disconnects when updates stop, and a packaged file-drop helper for upload fields. Scripts are included in the extension; fetched resources are data, not executed remote code.
 
 **sidePanel justification**
 

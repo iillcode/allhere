@@ -71,6 +71,7 @@ import { iconNeedsDarkBackground } from "./iconContrast";
 import { loadResourceFile } from "./resourceFiles";
 import { useResourceDrag } from "./useResourceDrag";
 import { useActivePage } from "./useActivePage";
+import { useAutoUpdates, type AutoCaptureRequest } from "./useAutoUpdates";
 import { TabFavicon } from "./TabFavicon";
 import { sampleCaptures } from "./sample";
 import { LibraryManager } from "./LibraryManager";
@@ -724,10 +725,21 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const libraryMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const savedMenuItemRef = useRef<HTMLButtonElement>(null);
   const captureSequenceRef = useRef(0);
+  const captureInFlightRef = useRef<number | null>(null);
+  const automaticTaskRef = useRef<Promise<void> | null>(null);
   const capturesRef = useRef<PageCapture[]>([]);
   const exclusionsRef = useRef<CaptureExclusions>(emptyCaptureExclusions());
   const libraryWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const managementMutationInFlight = useRef(false);
+  const autoUpdates = useAutoUpdates({
+    adapter, page: activePage.page,
+    suspended: mode !== "extension" || busy || managementOpen || managementBusy || sampleMode || Boolean(activePage.page.url && exclusionsRef.current.pages.includes(activePage.page.url)),
+    onCapture: request => {
+      const task = handleAutomaticCapture(request);
+      automaticTaskRef.current = task;
+      return task.finally(() => { if (automaticTaskRef.current === task) automaticTaskRef.current = null; });
+    }, onError: setNotice,
+  });
 
   useEffect(() => {
     const header = topbarRef.current;
@@ -962,7 +974,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   ): Promise<T> {
     const pending = libraryWriteQueue.current.then(async () => {
       const result = mutate(capturesRef.current, exclusionsRef.current);
-      await adapter.save(result.captures, result.exclusions);
+      if (result.captures !== capturesRef.current || result.exclusions !== exclusionsRef.current) await adapter.save(result.captures, result.exclusions);
       capturesRef.current = result.captures;
       exclusionsRef.current = result.exclusions;
       setCaptures(result.captures);
@@ -972,11 +984,20 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     return pending;
   }
 
-  const saveCapture = (capture: PageCapture, sequence: number) => updateLibrary((previous, currentExclusions) => {
-    if (sequence !== captureSequenceRef.current) return { captures: previous, exclusions: currentExclusions, savedCapture: undefined };
-    const exclusions = restorePageCapture(currentExclusions, capture.pageUrl);
+  const saveCapture = (capture: PageCapture, sequence: number, automatic = false, isCurrent = () => true) => updateLibrary((previous, currentExclusions) => {
+    if (sequence !== captureSequenceRef.current || !isCurrent()) return { captures: previous, exclusions: currentExclusions, savedCapture: undefined };
+    const exclusions = automatic ? currentExclusions : restorePageCapture(currentExclusions, capture.pageUrl);
     const allowedCapture = filterExcludedCapture(capture, exclusions);
     if (!allowedCapture) return { captures: previous, exclusions, savedCapture: undefined };
+    const existing = previous.find(page => page.pageUrl === capture.pageUrl);
+    if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
+      const known = new Map(existing.resources.map(resource => [resourceIdentity(resource), resource]));
+      const fields = ["label", "alt", "description", "width", "height", "mimeType"] as const;
+      if (allowedCapture.resources.every(resource => {
+        const old = known.get(resourceIdentity(resource));
+        return old && fields.every(field => old[field] === resource[field]);
+      })) return { captures: previous, exclusions, savedCapture: existing };
+    }
     const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
     return { captures: next, exclusions, savedCapture };
@@ -984,17 +1005,23 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
   const handleCapture = async () => {
     if (!adapter.captureCurrentPage) return;
+    const isSessionCurrent = autoUpdates.beginAuthorization();
+    const previousAutomaticTask = automaticTaskRef.current;
     const sequence = ++captureSequenceRef.current;
+    captureInFlightRef.current = sequence;
     setBusy(true);
     setNotice("");
     try {
       const startedPage = await activePage.beginScan();
+      await previousAutomaticTask?.catch(() => undefined);
+      if (sequence !== captureSequenceRef.current) return;
       const capture = await adapter.captureCurrentPage(startedPage);
       if (sequence !== captureSequenceRef.current) return;
       const { savedCapture } = await saveCapture(capture, sequence);
       if (sequence !== captureSequenceRef.current) return;
       if (!savedCapture) return;
-      await activePage.finishScan(startedPage, capture.pageUrl);
+      await activePage.finishScan(startedPage, capture.pageUrl, isSessionCurrent);
+      await autoUpdates.authorize(startedPage, isSessionCurrent);
       if (!savedOnly) {
         setSelectedCaptureId(savedCapture.id);
         setSelected(null);
@@ -1006,9 +1033,29 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         setNotice(error instanceof Error ? error.message : "The page could not be scanned. Try again.");
       }
     } finally {
+      if (captureInFlightRef.current === sequence) captureInFlightRef.current = null;
       if (sequence === captureSequenceRef.current) setBusy(false);
     }
   };
+
+  async function handleAutomaticCapture({ page, isCurrent, followTab }: AutoCaptureRequest) {
+    if (!adapter.captureCurrentPage || !isCurrent()) return;
+    if (captureInFlightRef.current !== null) throw new Error("A scan is already in progress.");
+    const sequence = ++captureSequenceRef.current;
+    captureInFlightRef.current = sequence;
+    try {
+      const capture = await adapter.captureCurrentPage(page);
+      if (!isCurrent() || sequence !== captureSequenceRef.current) return;
+      const current = await adapter.getActivePage?.();
+      if (!current || !isCurrent() || current.tabId !== page.tabId || current.url !== capture.pageUrl || current.revision !== page.revision || current.accessEpoch !== page.accessEpoch) return;
+      const { savedCapture } = await saveCapture(capture, sequence, true, isCurrent);
+      if (!savedCapture || !isCurrent() || sequence !== captureSequenceRef.current) return;
+      await activePage.finishScan(page, capture.pageUrl, isCurrent);
+      if (followTab && !savedOnly && !managementOpen && !selected && selectedKeys.size === 0) setSelectedCaptureId(savedCapture.id);
+    } finally {
+      if (captureInFlightRef.current === sequence) captureInFlightRef.current = null;
+    }
+  }
 
   useEffect(() => {
     return () => {
@@ -1553,7 +1600,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               className={`button button--primary button--scan${activePage.needsScan ? " button--scan-needed" : ""}`}
               type="button" aria-label="Scan this page"
               data-scan-state={busy ? "scanning" : activePage.needsScan ? "needed" : "ready"}
-              title={activePage.needsScan ? "This tab needs a scan. Click Allhere's toolbar icon first if access is needed." : "This page has been scanned. Scan again to refresh its resources."}
+              title={autoUpdates.authorized ? autoUpdates.paused ? "Refresh this tab once. Automatic updates remain paused." : "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
               onClick={() => void handleCapture()} disabled={busy || !loaded}
             >
               {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <TabFavicon key={`${activePage.page.tabId}:${activePage.page.revision}`} url={activePage.page.faviconUrl} />}
@@ -1621,6 +1668,21 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           tabIndex={-1}
           aria-hidden="true"
         />
+        {mode === "extension" && (
+          <div className="auto-updates" data-auto-state={autoUpdates.authorized ? autoUpdates.paused ? "paused" : autoUpdates.onHold ? "hold" : "on" : "manual"}>
+            {autoUpdates.authorized ? (
+              <>
+                <span className="auto-updates__status" title={autoUpdates.onHold ? "Updates wait while loading, managing the library, or after deleting this page. Scan again can restore a deleted page." : "Automatic updates apply only to this authorized tab while the panel is visible."}>
+                  <span className={`auto-updates__dot${autoUpdates.updating ? " auto-updates__dot--busy" : ""}`} aria-hidden="true" />
+                  {autoUpdates.paused ? "Auto-updates paused" : autoUpdates.onHold ? "Auto-updates on hold" : "Auto-updates on"}
+                </span>
+                <button className="auto-updates__toggle" type="button" aria-label={autoUpdates.paused ? "Resume automatic updates for this tab" : "Pause automatic updates for this tab"} onClick={autoUpdates.toggle}>
+                  {autoUpdates.paused ? "Resume" : "Pause"}
+                </button>
+              </>
+            ) : <span>Scan page also keeps this tab updated while Allhere is open. Pause anytime.</span>}
+          </div>
+        )}
       </header>
 
       <div className="workspace" id="library">
@@ -1883,7 +1945,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <h2>Your library starts with a page</h2>
                     <p>
                       {mode === "extension"
-                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files."
+                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open; pause them anytime."
                         : "Capture resources in the Chrome side panel, then import your library here."}
                     </p>
                     {mode === "extension" ? (

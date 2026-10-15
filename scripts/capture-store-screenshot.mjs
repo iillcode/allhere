@@ -106,9 +106,14 @@ try {
   }, "The extension interface did not open.");
   page = new Cdp(target.webSocketDebuggerUrl);
   await page.ready();
+  if (source === "installed") {
+    await page.send("Page.enable");
+    await page.send("Page.addScriptToEvaluateOnNewDocument", { source: "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});" });
+  }
   await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
   await page.send("Page.reload", { ignoreCache: true });
   await until(() => page.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "The extension interface did not render.");
+  if (source === "installed") await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
   if (source === "installed") {
     const { targetId: sourceId } = await controller.send("Target.createTarget", { url: webUrl });
     const sourceTab = await until(async () => {
@@ -143,7 +148,7 @@ try {
     // A real side panel stays beside its source tab. This headless harness uses
     // an extension tab: retain Chrome's source metadata while foregrounding it
     // for reliable screenshots, without changing capture or stored resources.
-    await page.evaluate("(async()=>{const query=chrome.tabs.query.bind(chrome.tabs);const source=await query({active:true,currentWindow:true});chrome.tabs.query=options=>options.currentWindow?Promise.resolve(source):query(options);})()");
+    await page.evaluate("(async()=>{const query=chrome.tabs.query.bind(chrome.tabs);const source=await query({active:true,currentWindow:true});chrome.tabs.query=options=>options.active?Promise.resolve(source):query(options);})()");
     await page.send("Page.bringToFront");
     sourcePage.close();
   } else {
