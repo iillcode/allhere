@@ -99,7 +99,7 @@ try {
     const script=chrome.scripting.executeScript.bind(chrome.scripting);chrome.scripting.executeScript=async options=>{
       if(!options.func)return script(options);
       window.__captureCount++;window.__activeCaptures++;window.__maxCaptures=Math.max(window.__maxCaptures,window.__activeCaptures);
-      try {const result=await script(options);if(window.__holdNext){window.__holdNext=false;await new Promise(resolve=>window.__releaseAuto=resolve);}return result;}
+      try {if(window.__failCapture)throw new Error("Fixture refresh failed");const result=await script(options);if(window.__holdNext){window.__holdNext=false;await new Promise(resolve=>window.__releaseAuto=resolve);}return result;}
       finally{window.__activeCaptures--;}
     };const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__permissionRequests++;return permission(options);};window.__autoModelInstalled=true;})();`;
   await panel.send("Page.enable");
@@ -115,7 +115,7 @@ try {
   const read = () => panel.evaluate("chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']||[])");
   const current = async (url = base + "/gallery") => (await read()).find(page => page.pageUrl === url);
   const count = () => panel.evaluate("window.__captureCount");
-  const state = () => panel.evaluate("document.querySelector('.auto-updates')?.dataset.autoState ?? 'manual'");
+  const state = () => panel.evaluate("document.querySelector('.button--scan')?.title.includes('Automatic updates are enabled.') ? 'on' : 'manual'");
   const click = selector => panel.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`, true);
   const menu = async label => {
     await click(".library-menu__trigger");
@@ -141,8 +141,8 @@ try {
         await panel.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
         await panel.evaluate('window.scrollTo(0,0)');
         const bounds=await panel.evaluate("(()=>{const header=document.querySelector('.topbar').getBoundingClientRect(),menu=document.querySelector('.library-menu__trigger').getBoundingClientRect();return {fits:document.documentElement.scrollWidth<=innerWidth,height:header.height,edge:Math.abs(header.right-menu.right)}})()");
-        assert.ok(bounds.fits&&bounds.height<=128&&bounds.edge<=1,`Header overflow at ${width}: ${JSON.stringify(bounds)}`);
-        if (name === 'disclosure') assert.ok(bounds.height <= 65, `The removed message must not leave header space at ${width}`);
+        assert.ok(bounds.fits&&bounds.height<=65&&bounds.edge<=1,`Header overflow at ${width}: ${JSON.stringify(bounds)}`);
+        assert.equal(await panel.evaluate("Boolean(document.querySelector('.auto-updates'))"), false, 'The automatic-update status row must stay removed after scanning');
         const shot=await panel.send('Page.captureScreenshot',{format:'png'});
         await writeFile(resolve(`.impeccable/review/auto-${name}-${width}.png`),Buffer.from(shot.data,'base64'));
         await panel.evaluate('window.scrollTo(0,1000);new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
@@ -168,9 +168,6 @@ try {
   await manual();
   await until(async () => (await current())?.resources.length >= 12, "First manual capture did not save");
   await record('on');
-  await click('.auto-updates__toggle');
-  await record('paused');
-  await click('.auto-updates__toggle');
   const first = (await current()).resources.find(resource => resource.url.endsWith("/image-0.png"));
   await panel.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>{data['allhere.library.v1'][0].resources.find(resource=>resource.id===${JSON.stringify(first.id)}).saved=true;return chrome.storage.local.set(data);})`);
   await click('[data-resource-tab="images"]'); await click('[aria-label="List view"]');
@@ -193,6 +190,15 @@ try {
   await source.evaluate("const image=new Image();image.src='/frame-later.png';image.alt='Frame later';image.width=200;image.height=140;document.querySelector('iframe').contentDocument.body.append(image)");
   await waitResource("frame-later");
 
+  await panel.evaluate('window.__failCapture=true'); await add('failed-auto-image');
+  await until(async()=>await state()==='manual','An automatic capture failure must require a new manual scan');
+  await until(()=>panel.evaluate("document.querySelector('.notice')?.textContent.includes('Automatic updates stopped')"),'Automatic failure must explain how to recover');
+  assert.equal(await panel.evaluate("document.querySelector('.button--scan').dataset.scanState"),'needed','Recovery must show a manual-scan state');
+  const failedCount=await count(); await add('after-failed-auto'); await delay(2200);
+  assert.equal(await count(),failedCount,'Failed updates must not retry in a loop without another scan');
+  await panel.evaluate('window.__failCapture=false'); await manual();
+  await waitResource('failed-auto-image'); await waitResource('after-failed-auto');
+
   await panel.evaluate("window.__holdNext=true"); await add("manual-overlap");
   await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Overlap checkpoint did not start");
   const overlapCount = await count();
@@ -204,17 +210,14 @@ try {
 
   await panel.evaluate("window.__holdNext=true"); await add("pending-auto");
   await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Automatic capture did not reach checkpoint");
-  const beforePause = await read();
-  await click(".auto-updates__toggle");
+  const beforeManage = await read();
+  await menu('Manage');
   await panel.evaluate("window.__releaseAuto();delete window.__releaseAuto");
   await delay(1600);
-  assert.deepEqual(await read(), beforePause, "Pausing must discard an unfinished automatic capture");
-  const pausedCount = await count(); await add("paused-image"); await delay(2200);
-  assert.equal(await count(), pausedCount, "Paused pages must not be scanned");
-  await click(".button--scan");
-  await until(() => contains("paused-image"), "Manual refresh while paused failed");
-  assert.equal(await state(), "paused", "Manual refresh must preserve the user's pause choice");
-  await click(".auto-updates__toggle"); await waitResource("pending-auto");
+  assert.deepEqual(await read(), beforeManage, 'Opening Manage must discard an unfinished automatic capture');
+  const managePendingCount = await count(); await add('managed-pending-image'); await delay(2200);
+  assert.equal(await count(), managePendingCount, 'Managing the library must hold automatic capture');
+  await menu('All resources'); await waitResource('pending-auto'); await waitResource('managed-pending-image');
   await panel.evaluate("window.__panelVisibility='hidden';document.dispatchEvent(new Event('visibilitychange'))"); await delay(300);
   const hiddenCount = await count(); await add("hidden-image"); await delay(2200);
   assert.equal(await count(), hiddenCount, "Hidden panels must not start captures");
@@ -279,7 +282,7 @@ try {
   assert.equal(await count(), beforeForeign);
   await manual();
 
-  await click(".auto-updates__toggle");
+  await menu("Manage");
   await panel.evaluate("window.__holdNext=true");
   await click(".button--scan");
   await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Manual scan did not reach the panel-session checkpoint");
@@ -291,6 +294,7 @@ try {
   const endedSessionCount = await count();
   await add("after-ended-session"); await delay(2200);
   assert.equal(await count(), endedSessionCount, "A scan from an ended panel session must not restart automatic capture");
+  await menu("All resources");
   await manual(); await waitResource("after-ended-session", nextUrl);
   assert.ok(await panel.evaluate("window.__maxCaptures<=1"), "Automatic captures must not overlap");
   assert.equal(await panel.evaluate("window.__permissionRequests"), 0, "Automatic updates must never request site access");
@@ -326,14 +330,12 @@ try {
   await click('[aria-label="List view"]');
   assert.deepEqual(await panel.evaluate("[...document.querySelectorAll('.table-name strong')].map(element=>element.textContent)"), initialOrder, 'Image list must keep source order');
 
-  await click('.auto-updates__toggle');
   await source.evaluate("(async()=>{document.body.prepend(document.querySelector('#last-image'));const image=new Image();image.src='/order-new.png';image.alt='New first';image.width=200;image.height=140;document.body.prepend(image);await image.decode();})()");
   const manualOrder = ['New first', 'Last image', ...initialOrder.filter(name => name !== 'Last image')];
   await click('.button--scan');
   await waitOrder(manualOrder, 'Manual rescan retained the old order or appended a new first image');
   await until(() => panel.evaluate("document.querySelector('.button--scan').disabled===false"), 'Ordered manual scan stayed busy');
-  assert.equal(await state(), 'paused', 'Reordering must preserve Pause');
-  await click('.auto-updates__toggle');
+  assert.equal(await state(), 'on', 'Manual refresh must keep automatic updates enabled');
   await source.evaluate("document.querySelector('#background').style.order='4'");
   const autoOrder = [...manualOrder];
   autoOrder.splice(autoOrder.indexOf('Background first'), 1);
@@ -354,7 +356,7 @@ try {
   assert.deepEqual(names(await current(orderUrl)), names(persisted), 'Image order must persist after reopening');
   assert.equal(await state(), 'manual', 'Ordering must not change scan authorization');
   assert.equal(await panel.evaluate('window.__permissionRequests'), 0, 'Ordering must never request additional site access');
-  console.log("PASS automatic updates and webpage image order: CSS flex/row order, backgrounds, pseudo-elements, blobs, shadow roots, nested/sibling frames, duplicate first appearances, hidden images, albums/grid/list, manual and order-only automatic updates, stable bookmarks/IDs, unchanged-scan no-op, retained older images, reopen persistence, consent, Pause/Resume, management exclusions, and zero permission prompts.");
+  console.log("PASS automatic updates and webpage image order: CSS flex/row order, backgrounds, pseudo-elements, blobs, shadow roots, nested/sibling frames, duplicate first appearances, hidden images, albums/grid/list, manual and order-only automatic updates, stable bookmarks/IDs, unchanged-scan no-op, retained older images, reopen persistence, consent, automatic loading without controls, management exclusions, error recovery, and zero permission prompts.");
 } finally {
   try { await controller?.send("Browser.close"); } catch { /* Already closed. */ }
   for (const client of [panel, source, other, controller]) client?.close();

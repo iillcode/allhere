@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { LibraryAdapter } from "./adapters";
 import type { ActivePage } from "./activePage";
 
-type Session = { origin: string; accessEpoch: number; paused: boolean };
+type Session = { origin: string; accessEpoch: number };
 export type AutoCaptureRequest = { page: ActivePage; isCurrent: () => boolean; followTab: boolean };
 const originOf = (page?: ActivePage) => {
   try { if (page?.url && /^https?:\/\//i.test(page.url)) return new URL(page.url).origin; } catch { /* No website access. */ }
@@ -17,7 +17,6 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
   const sessionsRef = useRef(sessions);
   const [visible, setVisible] = useState(() => typeof document !== "undefined" && document.visibilityState === "visible");
   const visibleRef = useRef(visible);
-  const [updating, setUpdating] = useState(false);
   const generation = useRef(0);
   const panelSession = useRef(0);
   const callbacks = useRef({ onCapture, onError });
@@ -30,9 +29,8 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
   };
   const session = page.tabId === undefined ? undefined : sessions.get(page.tabId);
   const authorized = Boolean(session && session.origin === originOf(page) && session.accessEpoch === page.accessEpoch);
-  const paused = authorized && session!.paused;
-  const eligible = authorized && !paused && visible && !suspended && !page.loading;
-  const scope = authorized ? `${page.tabId}:${session!.origin}:${session!.accessEpoch}:${paused}` : "";
+  const eligible = authorized && visible && !suspended && !page.loading;
+  const scope = authorized ? `${page.tabId}:${session!.origin}:${session!.accessEpoch}` : "";
 
   useEffect(() => {
     const visibility = () => {
@@ -67,7 +65,6 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
     const token = ++generation.current;
     let alive = true, timer: number | undefined, stopWatching: (() => void) | undefined;
     let running = false, pending = false, lastRun = 0;
-    setUpdating(false);
     if (!eligible || !adapter.watchPage || page.tabId === undefined) return;
     const context = `${page.tabId}:${page.url}`;
     let followTab = previousContext.current !== context;
@@ -81,19 +78,18 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
       generation.current += 1;
       changeSessions(current => {
         const next = new Map(current);
-        const previous = next.get(tabId);
-        if (previous) next.set(tabId, { ...previous, paused: true });
+        next.delete(tabId);
         return next;
       });
       callbacks.current.onError(/permission|access|toolbar|blocked|restricted/i.test(message)
-        ? "Automatic updates paused. Click Allhere's toolbar icon on this tab, then scan again or resume updates."
-        : "Automatic updates paused because this page could not be refreshed. Try Scan again or Resume.");
+        ? "Automatic updates stopped. Click Allhere's toolbar icon on this tab, then choose Scan page."
+        : "Automatic updates stopped because this page could not be refreshed. Choose Scan page to restart them.");
     };
     const run = async () => {
       timer = undefined;
       if (!isCurrent()) return;
       if (running) { pending = true; return; }
-      pending = false; running = true; lastRun = Date.now(); setUpdating(true);
+      pending = false; running = true; lastRun = Date.now();
       try {
         const current = await adapter.getActivePage?.();
         if (!current || !isCurrent() || current.loading || current.tabId !== page.tabId || originOf(current) !== session!.origin || current.accessEpoch !== session!.accessEpoch) return;
@@ -102,7 +98,7 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
       } catch (error) { fail(error); }
       finally {
         running = false;
-        if (isCurrent()) { setUpdating(false); if (pending) schedule(); }
+        if (isCurrent() && pending) schedule();
       }
     };
     function schedule() {
@@ -134,16 +130,9 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
     if (!isSessionCurrent() || !current || !origin || current.tabId !== started.tabId || originOf(current) !== origin || current.accessEpoch !== started.accessEpoch) return;
     changeSessions(previous => {
       const next = new Map(previous);
-      const existing = next.get(started.tabId!);
-      const keepPause = existing?.origin === origin && existing.accessEpoch === current.accessEpoch && existing.paused;
-      next.set(started.tabId!, { origin, accessEpoch: current.accessEpoch, paused: Boolean(keepPause) });
+      next.set(started.tabId!, { origin, accessEpoch: current.accessEpoch });
       return next;
     });
   };
-  const toggle = () => {
-    if (!authorized || page.tabId === undefined) return;
-    generation.current += 1;
-    changeSessions(current => new Map(current).set(page.tabId!, { ...session!, paused: !session!.paused }));
-  };
-  return { authorized, paused, updating, onHold: authorized && !paused && !eligible, beginAuthorization, authorize, toggle };
+  return { authorized, beginAuthorization, authorize };
 }

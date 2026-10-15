@@ -122,6 +122,9 @@ try {
   await page.ready();
   if (scanOnly) {
     // The fixture is an extension tab; model a continuously visible side panel.
+    // Isolate manual capture and navigation races from watcher notifications.
+    // verify-auto-updates.mjs exercises real ports and continuous collection.
+    await page.evaluate("(()=>{const connect=chrome.tabs.connect.bind(chrome.tabs);chrome.tabs.connect=(tabId,options)=>options?.name==='allhere.auto-updates'?{disconnect(){},onMessage:{addListener(){}},onDisconnect:{addListener(){}}}:connect(tabId,options);})()");
     await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
   }
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 1, mobile: false });
@@ -704,6 +707,7 @@ try {
         catch(error){ console.log(await page.evaluate("chrome.tabs.query({active:true,currentWindow:true}).then(tabs=>({tabs,icon:document.querySelector('.scan-favicon')?.outerHTML}))"));throw error; }
       };
       const recordScanState=async(state)=>{
+        await expectScanState(state);
         await mkdir(resolve('.impeccable/review'),{recursive:true});
         // A real side panel never becomes the active browser tab. The headless
         // fixture uses an extension tab, so retain source metadata only while
@@ -744,10 +748,9 @@ try {
       await page.evaluate('window.__hideScanUrl=false;chrome.tabs.query=window.__tabsQuery');
       await page.evaluate("document.querySelector('.button--scan').click()",true);
       const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
+      assert.equal(await page.evaluate("Boolean(document.querySelector('.auto-updates,.auto-updates__toggle'))"),false,'Manual scanning must not add an automatic-update control row');
       await expectScanState('ready');
       assert.equal(await page.evaluate("document.querySelector('.button--scan span:last-child').textContent"),'Scan again','Successful scans need a text indication as well as color');
-      await until(()=>page.evaluate("Boolean(document.querySelector('.auto-updates__toggle'))"),'The scan must expose its Pause control');
-      await page.evaluate("document.querySelector('.auto-updates__toggle').click()",true);
       await recordScanState('ready');
       const cdnIcon=base.replace('127.0.0.1','localhost')+'/cdn-favicon.png';
       await live.evaluate(`document.querySelector('link[rel=icon]').href=${JSON.stringify(cdnIcon)}`);
@@ -848,8 +851,6 @@ try {
         assert.equal(await page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1'].some(c=>c.pageUrl===${JSON.stringify(base+'/scan-frame')}))`),false,'A new tab must wait for Scan page');
         await page.evaluate("document.querySelector('.button--scan').click()",true);
         await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Asset frame'"),'Scan page did not collect the newly active tab');
-        await until(()=>page.evaluate("Boolean(document.querySelector('.auto-updates__toggle'))"),'The new scanned tab must expose Pause');
-        await page.evaluate("document.querySelector('.auto-updates__toggle').click()",true);
         await expectScanState('ready');
         const beforeReload=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         await other.send('Page.reload');
@@ -910,7 +911,7 @@ try {
         await delay(1600);
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),reopened,'Reopening the panel must not scan');
       } finally {other.close();}
-      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; current-tab favicons and globe fallback; amber/blue states across scans, tab switches, same-URL reloads and navigation; 320/390/720px header fits; zero scan permission prompts. Functional scans use only a pre-granted fixture host.`);
+      console.log(`PASS manual scans: ${repeated.resources.length} stable resources; current-tab favicons and globe fallback; amber/blue states across scans, tab switches, same-URL reloads and navigation; 320/390/720px header fits; zero scan permission prompts. This manual-capture fixture holds watcher notifications and pre-grants only its original host; the automatic suite tests real updates.`);
     } finally {live.close();}
   } else if (dragOnly) {
     const {targetId:destinationId}=await browserCdp.send('Target.createTarget',{url:base+'/destination'});

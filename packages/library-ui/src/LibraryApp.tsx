@@ -740,6 +740,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       return task.finally(() => { if (automaticTaskRef.current === task) automaticTaskRef.current = null; });
     }, onError: setNotice,
   });
+  const needsScan = activePage.needsScan || !autoUpdates.authorized;
 
   useEffect(() => {
     const header = topbarRef.current;
@@ -1596,15 +1597,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           </button>
           {mode === "extension" ? (
             <button
-              className={`button button--primary button--scan${activePage.needsScan ? " button--scan-needed" : ""}`}
+              className={`button button--primary button--scan${needsScan ? " button--scan-needed" : ""}`}
               type="button" aria-label="Scan this page"
               aria-describedby={!managementOpen ? "scan-update-hint" : undefined}
-              data-scan-state={busy ? "scanning" : activePage.needsScan ? "needed" : "ready"}
-              title={autoUpdates.authorized ? autoUpdates.paused ? "Refresh this tab once. Automatic updates remain paused." : "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
+              data-scan-state={busy ? "scanning" : needsScan ? "needed" : "ready"}
+              title={autoUpdates.authorized ? "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
               onClick={() => void handleCapture()} disabled={busy || !loaded}
             >
               {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <TabFavicon key={`${activePage.page.tabId}:${activePage.page.revision}`} url={activePage.page.faviconUrl} />}
-              <span>{busy ? "Scanning…" : activePage.needsScan ? "Scan page" : "Scan again"}</span>
+              <span>{busy ? "Scanning…" : needsScan ? "Scan page" : "Scan again"}</span>
             </button>
           ) : (
             <button className="button button--primary" aria-label="Import library" onClick={handleImportClick} disabled={busy}>
@@ -1668,17 +1669,6 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           tabIndex={-1}
           aria-hidden="true"
         />
-        {mode === "extension" && autoUpdates.authorized && (
-          <div className="auto-updates" data-auto-state={autoUpdates.paused ? "paused" : autoUpdates.onHold ? "hold" : "on"}>
-            <span className="auto-updates__status" title={autoUpdates.onHold ? "Updates wait while loading, managing the library, or after deleting this page. Scan again can restore a deleted page." : "Automatic updates apply only to this authorized tab while the panel is visible."}>
-              <span className={`auto-updates__dot${autoUpdates.updating ? " auto-updates__dot--busy" : ""}`} aria-hidden="true" />
-              {autoUpdates.paused ? "Auto-updates paused" : autoUpdates.onHold ? "Auto-updates on hold" : "Auto-updates on"}
-            </span>
-            <button className="auto-updates__toggle" type="button" aria-label={autoUpdates.paused ? "Resume automatic updates for this tab" : "Pause automatic updates for this tab"} onClick={autoUpdates.toggle}>
-              {autoUpdates.paused ? "Resume" : "Pause"}
-            </button>
-          </div>
-        )}
       </header>
 
       <div className="workspace" id="library">
@@ -1822,7 +1812,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Allhere's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Allhere is visible. Pause anytime in the header.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
+              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Allhere's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Allhere is visible. Close Allhere to stop automatic updates.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"
@@ -1941,7 +1931,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <h2>Your library starts with a page</h2>
                     <p>
                       {mode === "extension"
-                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open; pause them anytime."
+                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open. Close Allhere to stop them."
                         : "Capture resources in the Chrome side panel, then import your library here."}
                     </p>
                     {mode === "extension" ? (

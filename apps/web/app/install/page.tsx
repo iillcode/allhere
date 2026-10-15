@@ -84,7 +84,7 @@ export default function InstallPage() {
               and does not ask for a persistent site grant. File actions may
               ask for access to the selected resources’ hosts. The first scan also
               enables automatic resource updates for that tab while the panel is
-              visible. Use Pause or Resume in the header. An unscanned tab waits
+              visible. Close Allhere to stop updates. An unscanned tab waits
               for its own manual scan; navigation within an authorized origin
               can update automatically. Hiding or closing the panel ends this authorization. The extension
               library and the web library keep separate local collections; use
