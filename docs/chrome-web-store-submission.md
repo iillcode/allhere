@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.8`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release removes the pre-scan explanatory header row and keeps the resource tabs below the actual header height so they remain visible while scrolling. The existing Source page line retains a short automatic-update hint, and Pause/Resume remains available after scanning. Images keep the webpage’s rendered order across initial scans, manual rescans, and automatic updates. Background images, blobs, shadow roots, and accessible embedded frames take their place among regular images. Reordering preserves saved choices and previously collected resources; older resources absent from the current page follow the current images. Rescan older pages to refresh their order. Optional local 2×/4× resizing remains available. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access. No new permission is needed for image ordering.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.9`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release removes image upscaling completely from previews, individual downloads, and bulk ZIPs. Images retain source dimensions, with existing format choices preserved. It also removes the pre-scan explanatory header row and keeps the resource tabs below the actual header height so they remain visible while scrolling. The existing Source page line retains a short automatic-update hint, and Pause/Resume remains available after scanning. Images keep the webpage’s rendered order across initial scans, manual rescans, and automatic updates. Background images, blobs, shadow roots, and accessible embedded frames take their place among regular images. Reordering preserves saved choices and previously collected resources; older resources absent from the current page follow the current images. Rescan older pages to refresh their order. Automatic resource updates still require each tab’s first manual scan, with prominent disclosure and Pause/Resume controls. Scans use temporary toolbar access and never request persistent site access. No new permission is needed for image ordering.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -26,7 +26,7 @@ Allhere turns webpage resources into an organized local library in Chrome's side
 
 Browse by resource type, save useful items, inspect previews, copy addresses, and download individual files or a ZIP of selected resources. Direct video and audio files are supported; YouTube videos are not extracted or downloaded.
 
-For images, choose Original, 2×, or 4× size for previews and single or bulk downloads. Resizing runs locally in the browser and increases pixel dimensions without AI reconstruction. The preview shows the output dimensions. Original size is the default; enlarged images use PNG unless you select JPEG or WebP.
+Image previews and downloads keep their source dimensions. Download images in their original format or convert them locally to PNG, JPEG, or WebP. Icons also support SVG. The same format choices are available for bulk ZIP downloads.
 
 Allhere stores page addresses, resource details, selected previews, and download status locally in Chrome's extension storage. It does not sync your library to an Allhere account or send it to an Allhere analytics service. Opening previews or downloading files may contact the resources' original hosts; file actions can ask you to allow access to those specific hosts. Exporting a JSON archive or dragging a chosen file to a website shares that data only when you take that action. See the published Allhere privacy policy for details.
 
@@ -55,7 +55,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.8. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.9. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 

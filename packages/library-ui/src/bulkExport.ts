@@ -1,7 +1,7 @@
 import type { ResourceKind } from "@allhere/core";
 import { Zip, ZipPassThrough } from "fflate";
 import { loadDownloadFile } from "./downloadFiles";
-import { convertImageDownload, originalDownloadFormats, scaledImageFilename, type DownloadFormats } from "./imageDownloads";
+import { convertImageDownload, originalDownloadFormats, type DownloadFormats } from "./imageDownloads";
 
 type BulkEntry = {
   kind: ResourceKind | "page";
@@ -62,13 +62,12 @@ export async function createResourceZip(
         filename = entry.filename("url");
       } else {
         const format = entry.kind === "icon" ? formats.icons : entry.kind === "image" ? formats.images : "original";
-        const scale = entry.kind === "image" ? formats.imageScale ?? 1 : 1;
-        const file = format === "original" && scale === 1
+        const file = format === "original"
           ? await loadDownloadFile(entry.url, entry.kind, MAX_ZIP_BYTES - bytesAdded, "The ZIP reached its 256 MB size limit.")
-          : await convertImageDownload(entry.url, format, scale);
+          : await convertImageDownload(entry.url, format);
         if (bytesAdded + file.blob.size > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
         bytes = new Uint8Array(await file.blob.arrayBuffer());
-        filename = scaledImageFilename(entry.filename(file.extension, "filename" in file ? file.filename : undefined), scale);
+        filename = entry.filename(file.extension, "filename" in file ? file.filename : undefined);
       }
       if (bytesAdded + bytes.byteLength > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
       addFile(filename, bytes);

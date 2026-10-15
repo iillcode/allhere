@@ -33,7 +33,7 @@ export default function PrivacyPage() {
           paragraphs: [
             "The extension stores its collection and recent download status in Chrome's local extension storage on your device. The separate web library stores its collection in your browser's local storage. Allhere does not automatically sync either collection to an account or upload it to an Allhere server. Collection entries remain until you delete them or clear the relevant browser or extension data; older download status may be removed automatically.",
             "You can export a collection as a JSON file and import one you choose. Exported files may include page addresses, resource metadata, and embedded image data. You control where you save or share that file.",
-            "Optional 2× and 4× image resizing runs locally in your browser for previews and single or bulk downloads. Allhere does not upload images to an image-processing service. Generated preview data is temporary and released when the preview closes or its settings change. Resizing increases image dimensions without reconstructing missing detail.",
+            "Image previews and downloads keep the source image dimensions. Optional image and icon format conversion for single downloads and ZIPs runs locally in your browser. Allhere does not upload images to an image-processing service.",
           ],
         },
         {

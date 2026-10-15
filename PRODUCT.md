@@ -30,7 +30,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 - Gather images, links, media, and file/resource URLs present in a webpage.
 - Keep captured images in the webpage’s rendered reading order, including CSS backgrounds, shadow roots, and accessible frames. Refresh that order on rescans while preserving saved choices and older collected resources.
-- Offer optional local 2×/4× image resizing in previews, individual downloads, and bulk ZIPs. Keep Original size as the default and explain that resizing increases dimensions without reconstructing missing detail.
+- Preserve source image dimensions in previews and downloads. Offer image format conversion for single downloads and bulk ZIPs.
 - Show resource details and clear security signals, especially for links.
 - Use local heuristics for security flags; do not imply that a heuristic proves a destination is safe.
 - MVP storage is local to each surface. JSON archive import/export is the transfer path between the extension and web library; no cloud sync is specified.
