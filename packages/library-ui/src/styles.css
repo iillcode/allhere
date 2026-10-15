@@ -156,6 +156,7 @@ a { color: inherit; text-decoration: none; }
 .library-manager__page:hover strong { color: var(--blue-ink); }
 .library-manager__page > svg { flex: 0 0 auto; color: var(--ink-muted); }
 .library-manager__page-mark { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: var(--blue-ink); background: var(--surface-soft); }
+.library-manager__page-mark img { display: block; width: 24px; height: 24px; object-fit: contain; }
 .library-manager__copy { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .library-manager__copy strong, .library-manager__copy small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-manager__copy strong { color: var(--ink); font-size: 13px; font-weight: 500; }

@@ -1,8 +1,17 @@
 "use client";
 
-import { ArrowLeft, Bookmark, ChevronRight, Files, Globe, Search, Trash2, Undo2, X } from "lucide-react";
+import { ArrowLeft, Bookmark, ChevronRight, Files, Search, Trash2, Undo2, X } from "lucide-react";
 import { labelForResource, type CapturedResource, type PageCapture } from "@allhere/core";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { TabFavicon } from "./TabFavicon";
+
+function pageFavicon(capture: PageCapture): string | undefined {
+  if (capture.faviconUrl) return capture.faviconUrl;
+  try {
+    const url = new URL(capture.pageUrl);
+    if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password) return `${url.origin}/favicon.ico`;
+  } catch { /* Imported pages without a usable address retain the fallback. */ }
+}
 
 type Props = {
   captures: PageCapture[];
@@ -87,7 +96,7 @@ export function LibraryManager({ captures, query, onQueryChange: setQuery, busy,
       </div>) : pages.map((capture) => <div className="library-manager__row library-manager__row--page" key={capture.id}>
         <input type="checkbox" checked={checked.has(capture.id)} disabled={busy} onChange={() => toggle(capture.id)} aria-label={`Select page ${capture.pageTitle || capture.hostname}`} />
         <button className="library-manager__page" type="button" onClick={() => switchPage(capture.id)} aria-label={`Manage items from ${capture.pageTitle || capture.hostname}`}>
-          <span className="library-manager__page-mark"><Globe size={21} aria-hidden="true" /></span>
+          <TabFavicon url={pageFavicon(capture)} className="library-manager__page-mark" fallbackSize={21} />
           <span className="library-manager__copy"><strong title={capture.pageTitle}>{capture.pageTitle || capture.hostname}</strong><small title={capture.pageUrl}>{capture.pageUrl}</small><span>{capture.resources.length} items · {new Date(capture.capturedAt).toLocaleDateString()}</span></span>
           <ChevronRight size={17} aria-hidden="true" />
         </button>

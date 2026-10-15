@@ -363,7 +363,7 @@ export function createExtensionAdapter(): LibraryAdapter {
         pageUrl: scan.pageUrl,
         pageTitle: scan.pageTitle || pageHostname,
         hostname: pageHostname,
-        faviconUrl: scan.faviconUrl,
+        faviconUrl: scan.faviconUrl || tab.favIconUrl,
         capturedAt,
         resources,
       };

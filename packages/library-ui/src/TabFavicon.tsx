@@ -9,7 +9,7 @@ function faviconSource(value?: string): string | undefined {
   } catch { /* Chrome may omit the favicon until temporary tab access is granted. */ }
 }
 
-export function TabFavicon({ url }: { url?: string }) {
+export function TabFavicon({ url, className = "scan-favicon", fallbackSize = 16 }: { url?: string; className?: string; fallbackSize?: number }) {
   const source = faviconSource(url);
   const [loaded, setLoaded] = useState<{ source: string; url: string }>();
   const [failedSource, setFailedSource] = useState<string>();
@@ -51,10 +51,10 @@ export function TabFavicon({ url }: { url?: string }) {
   }, [source]);
 
   return (
-    <span className="scan-favicon" aria-hidden="true">
+    <span className={className} aria-hidden="true">
       {source && loaded?.source === source && source !== failedSource
         ? <img key={source} src={loaded.url} data-favicon-url={source} alt="" referrerPolicy="no-referrer" onError={() => setFailedSource(source)} />
-        : <Globe size={16} />}
+        : <Globe size={fallbackSize} />}
     </span>
   );
 }

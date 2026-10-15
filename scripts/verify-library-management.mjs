@@ -54,6 +54,12 @@ const font = await readFile(join(extension, "assets", fontName));
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="#d3e3fd"/><circle cx="80" cy="80" r="42" fill="#0b57d0"/></svg>';
 const server = createServer((request, response) => {
   const path = new URL(request.url, "http://localhost").pathname;
+  if (path === "/missing-icon.svg") { response.writeHead(404).end(); return; }
+  if (path === "/favicon-a.svg" || path === "/favicon.ico") {
+    response.writeHead(200, { "Content-Type": "image/svg+xml", "Access-Control-Allow-Origin": "*", "Cross-Origin-Resource-Policy": "same-origin" });
+    response.end(path === "/favicon.ico" ? svg.replaceAll("#0b57d0", "#6941c6") : svg);
+    return;
+  }
   if (path === "/a" || path === "/b") {
     response.writeHead(200, { "Content-Type": "text/html" });
     response.end(`<!doctype html><title>${path === "/a" ? "Research resources" : "Another captured page"}</title><img src="/saved-image.svg" alt="Saved image"><img src="/unsaved-image.svg" alt="Unsaved image"><div id="updates"></div>`);
@@ -75,7 +81,7 @@ const capturedAt = new Date().toISOString();
 const kinds = ["image", "icon", "font", "video", "audio", "link", "document"];
 const extensions = { image: "svg", icon: "svg", font: "woff2", video: "mp4", audio: "mp3", link: "html", document: "pdf" };
 const capture = {
-  id: "research", pageUrl: base + "/a", pageTitle: "Research resources", hostname: "127.0.0.1", capturedAt,
+  id: "research", pageUrl: base + "/a", pageTitle: "Research resources", hostname: "127.0.0.1", capturedAt, faviconUrl: base + "/favicon-a.svg",
   resources: kinds.flatMap((kind) => [true, false].map((saved) => ({
     id: `${saved ? "saved" : "unsaved"}-${kind}`, kind, saved: saved || undefined,
     label: `${saved ? "Saved" : "Unsaved"} ${kind}`, url: kind === "font" && saved ? base + "/font.woff2" : `${base}/${saved ? "saved" : "unsaved"}-${kind}.${extensions[kind]}`,
@@ -83,7 +89,7 @@ const capture = {
     security: { transport: "http", relation: "same-host", hostname: "127.0.0.1", signals: [], checkedAt: capturedAt, method: "local-heuristics" },
   }))),
 };
-const other = { ...capture, id: "another", pageUrl: base + "/b", pageTitle: "Another captured page", resources: [
+const other = { ...capture, id: "another", pageUrl: base + "/b", pageTitle: "Another captured page", faviconUrl: undefined, resources: [
   { ...capture.resources[0], id: "other-saved-image", label: "Saved second image", url: base + "/second-image.svg", pageUrl: base + "/b" },
   { ...capture.resources[1], id: "other-unsaved-image", label: "Unsaved second image", url: base + "/second-unsaved.svg", pageUrl: base + "/b" },
 ] };
@@ -100,6 +106,7 @@ try {
   }
   panel = await openPage(`chrome-extension://${new URL(worker.url).hostname}/index.html`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "Library did not render");
+  await panel.evaluate("window.__faviconPermissionRequests=0;const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__faviconPermissionRequests++;return permission(options);}");
   await panel.evaluate(`chrome.storage.local.set({'allhere.library.v1': ${JSON.stringify([capture, other])}, 'allhere.capture-exclusions.v1': {pages:[],resources:{}}})`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Fixture library did not render");
   const click = (selector) => panel.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -109,6 +116,14 @@ try {
   };
   const tab = (name) => panel.evaluate(`[...document.querySelectorAll('.category-pill')].find(button => button.textContent.startsWith(${JSON.stringify(name)})).click()`);
   const read = () => panel.evaluate("chrome.storage.local.get(['allhere.library.v1','allhere.capture-exclusions.v1'])");
+  const waitIcon = async (client, label, url) => {
+    const selector = `[aria-label="Manage items from ${label}"] .library-manager__page-mark img`;
+    await until(() => client.evaluate(`(()=>{const image=document.querySelector(${JSON.stringify(selector)});return image?.dataset.faviconUrl===${JSON.stringify(url)}&&image.complete&&image.naturalWidth>0;})()`), `Manage did not display the site logo for ${label}`);
+  };
+  const checkPageIcons = async client => {
+    await waitIcon(client, capture.pageTitle, capture.faviconUrl);
+    await waitIcon(client, other.pageTitle, base + "/favicon.ico");
+  };
   async function shot(name, width) {
     await panel.send("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 1, mobile: false });
     await panel.evaluate("scrollTo(0,0)"); await delay(150);
@@ -138,6 +153,24 @@ try {
   await shot("saved-320", 320); await shot("saved-390", 390);
   await menu("Manage");
   await until(() => panel.evaluate("Boolean(document.querySelector('.library-manager'))"), "Manage view did not open");
+  await checkPageIcons(panel);
+  const setOtherIcon = async faviconUrl => {
+    const stored = await read();
+    stored['allhere.library.v1'].find(page => page.id === other.id).faviconUrl = faviconUrl;
+    await panel.evaluate(`chrome.storage.local.set(${JSON.stringify(stored)})`);
+  };
+  await setOtherIcon(base + "/missing-icon.svg");
+  const otherMark = `[aria-label="Manage items from ${other.pageTitle}"] .library-manager__page-mark`;
+  await until(() => panel.evaluate(`(()=>{const mark=document.querySelector(${JSON.stringify(otherMark)});return !!mark?.querySelector('svg')&&!mark.querySelector('img');})()`), "Missing site icons must use a globe without a broken image");
+  await setOtherIcon("javascript:window.__invalidFaviconExecuted=true");
+  await until(() => panel.evaluate(`Boolean(document.querySelector(${JSON.stringify(otherMark)})?.querySelector('svg'))`), "Unsafe icon addresses must use the fallback");
+  assert.equal(await panel.evaluate("Boolean(window.__invalidFaviconExecuted)"), false, "Imported favicon URLs must not execute code");
+  const inlineFavicon = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  await setOtherIcon(inlineFavicon);
+  await waitIcon(panel, other.pageTitle, inlineFavicon);
+  await setOtherIcon(undefined);
+  await checkPageIcons(panel);
+  assert.equal(await panel.evaluate('window.__faviconPermissionRequests'), 0, "Opening Manage must not request site access for logos");
   for (const width of [320, 390, 720]) await shot(`manage-${width}`, width);
   await panel.evaluate("document.querySelector('[aria-label=\"Manage items from Research resources\"]').click()");
   await shot("manage-items-390", 390);
@@ -216,6 +249,12 @@ try {
     await web.evaluate("document.querySelector('.library-menu__trigger').click()");
     await until(() => web.evaluate("Boolean(document.querySelector('.library-menu__panel'))"), "Web library menu did not open");
     await web.evaluate("[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.startsWith('Manage')).click()");
+    await checkPageIcons(web);
+    for (const width of [1440, 390]) {
+      await web.send("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await web.evaluate("document.documentElement.scrollWidth<=innerWidth"), `Manage logos overflowed at ${width}px`);
+      await webShot(`manage-web-logos-${width}`);
+    }
     await web.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 850, deviceScaleFactor: 1, mobile: false });
     await web.evaluate("document.querySelector('.searchbox input').focus()");
     await web.send("Input.insertText", { text: "Another" });
@@ -248,7 +287,7 @@ try {
       await writeFile(resolve(`.impeccable/review/manage-web-${width}.png`), Buffer.from(data, "base64"));
     }
   }
-  console.log("PASS Brave: saved filtering across all media tabs; page and item deletion; Undo; failed storage writes; no background scans; persistence after reopening; explicit rescanning; responsive header and management at 320/390/720px.");
+  console.log("PASS Brave: Manage site logos from saved URLs and legacy origin favicons; inline logos; missing/unsafe icon fallback; no logo permission prompts; saved filtering; page/item deletion and Undo; failed writes; persistence and explicit rescans; 320/390/720px extension and optional 390/1440px web checks.");
 } finally {
   panel?.close(); source?.close(); web?.close();
   if (browserCdp) { try { await browserCdp.send("Browser.close"); } catch { /* Already closed. */ } browserCdp.close(); }

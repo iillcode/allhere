@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.10`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release removes the automatic-update status row and Pause/Resume controls. Each tab’s first successful manual scan enables automatic resource updates while that tab is active and Allhere is visible. Closing or hiding the panel ends authorization; unscanned tabs and new origins still require a manual scan. The compact header and measured sticky-tab offset keep resource tabs visible. Image order follows the webpage; source dimensions and existing image/icon format choices are retained. No extension permission is added.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/allhere-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.11`; increase it before every later package upload. Upload this package to the existing Allhere item to replace the previous draft. This release shows each saved site’s favicon in the Manage list. Older pages without a saved favicon URL try their own site’s /favicon.ico; unavailable icons retain the globe fallback. Icons load using existing access without a permission prompt or third-party lookup service. Existing stored libraries, automatic updates after the first manual scan, webpage image order, and source image dimensions are retained. No extension permission is added.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -55,7 +55,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.10. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.11. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 
@@ -91,7 +91,7 @@ Captured collections can include many resources and embedded SVG, image, and gen
 
 **Host permission justification, if shown**
 
-Allhere needs original file bytes from resource hosts discovered at runtime for user-requested downloads, ZIP creation, format conversion, enlarged-image preview preparation, SVG copying, and file-drag preparation. Choosing a preview size or retrying it can request its image host; opening a preview never prompts automatically. It requests only selected resources' original hosts, never a wildcard grant to all websites. Scanning does not request persistent site access. Optional host grants remain until removed in Chrome settings.
+Allhere needs original file bytes from resource hosts discovered at runtime for user-requested downloads, ZIP creation, format conversion, SVG copying, and file-drag preparation. Opening a preview or showing a saved-site logo uses existing access and never prompts for website permission automatically. It requests only selected resources' original hosts, never a wildcard grant to all websites. Scanning does not request persistent site access. Optional host grants remain until removed in Chrome settings.
 
 **Remote code**
 

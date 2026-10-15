@@ -256,6 +256,10 @@ The entire section opens its matching resource tab and retains the source page. 
 ### Dragging Resources
 Cards, list names, and album thumbnails use the grab cursor and retain the existing layout. Hover or focus prepares file bytes; the dots button shows a spinner during preparation. Its custom menu includes Prepare for dragging, and the existing status notice reports readiness or fetch failures. A dragged item dims while leaving its source visible. Links and pages carry URLs; downloadable resources carry a named file. File inputs respect accepted formats and disabled state. Failed drops use a compact blue status notice on the destination page. The 64 MB limit and supported upload behavior are documented in README.md.
 
+### Manage Page Marks
+
+Manage page rows show the saved site favicon inside their existing 42px neutral outlined mark, fitted to 24px with its aspect ratio preserved. Older captures without a saved favicon URL try the source origin’s standard favicon. The existing globe remains the loading or unavailable-icon fallback. The same bounded favicon loader serves the scan button and Manage rows, without new permissions or a third-party lookup service. Row spacing, titles, checkboxes, and delete actions are unchanged.
+
 ### Details Pane
 Image previews use their source pixels, fitted within the existing preview area. Single and bulk actions offer format choices while preserving source dimensions. No image-size or enhancement controls are shown.
 

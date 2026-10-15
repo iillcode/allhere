@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Allhere — Web resource library",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Collect and review images, links, media, and file URLs from the pages you visit.",
   "minimum_chrome_version": "114",
   "icons": {
