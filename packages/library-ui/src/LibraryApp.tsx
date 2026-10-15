@@ -1603,6 +1603,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
             <button
               className={`button button--primary button--scan${activePage.needsScan ? " button--scan-needed" : ""}`}
               type="button" aria-label="Scan this page"
+              aria-describedby={!managementOpen ? "scan-update-hint" : undefined}
               data-scan-state={busy ? "scanning" : activePage.needsScan ? "needed" : "ready"}
               title={autoUpdates.authorized ? autoUpdates.paused ? "Refresh this tab once. Automatic updates remain paused." : "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
               onClick={() => void handleCapture()} disabled={busy || !loaded}
@@ -1672,19 +1673,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           tabIndex={-1}
           aria-hidden="true"
         />
-        {mode === "extension" && (
-          <div className="auto-updates" data-auto-state={autoUpdates.authorized ? autoUpdates.paused ? "paused" : autoUpdates.onHold ? "hold" : "on" : "manual"}>
-            {autoUpdates.authorized ? (
-              <>
-                <span className="auto-updates__status" title={autoUpdates.onHold ? "Updates wait while loading, managing the library, or after deleting this page. Scan again can restore a deleted page." : "Automatic updates apply only to this authorized tab while the panel is visible."}>
-                  <span className={`auto-updates__dot${autoUpdates.updating ? " auto-updates__dot--busy" : ""}`} aria-hidden="true" />
-                  {autoUpdates.paused ? "Auto-updates paused" : autoUpdates.onHold ? "Auto-updates on hold" : "Auto-updates on"}
-                </span>
-                <button className="auto-updates__toggle" type="button" aria-label={autoUpdates.paused ? "Resume automatic updates for this tab" : "Pause automatic updates for this tab"} onClick={autoUpdates.toggle}>
-                  {autoUpdates.paused ? "Resume" : "Pause"}
-                </button>
-              </>
-            ) : <span>Scan page also keeps this tab updated while Allhere is open. Pause anytime.</span>}
+        {mode === "extension" && autoUpdates.authorized && (
+          <div className="auto-updates" data-auto-state={autoUpdates.paused ? "paused" : autoUpdates.onHold ? "hold" : "on"}>
+            <span className="auto-updates__status" title={autoUpdates.onHold ? "Updates wait while loading, managing the library, or after deleting this page. Scan again can restore a deleted page." : "Automatic updates apply only to this authorized tab while the panel is visible."}>
+              <span className={`auto-updates__dot${autoUpdates.updating ? " auto-updates__dot--busy" : ""}`} aria-hidden="true" />
+              {autoUpdates.paused ? "Auto-updates paused" : autoUpdates.onHold ? "Auto-updates on hold" : "Auto-updates on"}
+            </span>
+            <button className="auto-updates__toggle" type="button" aria-label={autoUpdates.paused ? "Resume automatic updates for this tab" : "Pause automatic updates for this tab"} onClick={autoUpdates.toggle}>
+              {autoUpdates.paused ? "Resume" : "Pause"}
+            </button>
           </div>
         )}
       </header>
@@ -1830,7 +1827,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span title="On each new tab, click Allhere's toolbar icon before choosing Scan page.">Toolbar icon first, then Scan page</span></span>
+              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Allhere's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Allhere is visible. Pause anytime in the header.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"

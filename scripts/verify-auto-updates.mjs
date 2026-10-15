@@ -115,7 +115,7 @@ try {
   const read = () => panel.evaluate("chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']||[])");
   const current = async (url = base + "/gallery") => (await read()).find(page => page.pageUrl === url);
   const count = () => panel.evaluate("window.__captureCount");
-  const state = () => panel.evaluate("document.querySelector('.auto-updates')?.dataset.autoState");
+  const state = () => panel.evaluate("document.querySelector('.auto-updates')?.dataset.autoState ?? 'manual'");
   const click = selector => panel.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`, true);
   const menu = async label => {
     await click(".library-menu__trigger");
@@ -142,8 +142,16 @@ try {
         await panel.evaluate('window.scrollTo(0,0)');
         const bounds=await panel.evaluate("(()=>{const header=document.querySelector('.topbar').getBoundingClientRect(),menu=document.querySelector('.library-menu__trigger').getBoundingClientRect();return {fits:document.documentElement.scrollWidth<=innerWidth,height:header.height,edge:Math.abs(header.right-menu.right)}})()");
         assert.ok(bounds.fits&&bounds.height<=128&&bounds.edge<=1,`Header overflow at ${width}: ${JSON.stringify(bounds)}`);
+        if (name === 'disclosure') assert.ok(bounds.height <= 65, `The removed message must not leave header space at ${width}`);
         const shot=await panel.send('Page.captureScreenshot',{format:'png'});
         await writeFile(resolve(`.impeccable/review/auto-${name}-${width}.png`),Buffer.from(shot.data,'base64'));
+        await panel.evaluate('window.scrollTo(0,1000);new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        const tabs = await panel.evaluate("(()=>{const header=document.querySelector('.topbar').getBoundingClientRect(),tab=document.querySelector('[data-resource-tab]').getBoundingClientRect(),hit=document.elementFromPoint(tab.left+tab.width/2,tab.top+tab.height/2);return {headerBottom:header.bottom,tabTop:tab.top,visible:tab.bottom<=innerHeight&&Boolean(hit?.closest('[data-resource-tab]'))}})()");
+        assert.ok(tabs.tabTop >= tabs.headerBottom - 1 && tabs.visible, `Resource tabs must stay visible and clickable below the header at ${width} (${name}): ${JSON.stringify(tabs)}`);
+        if (name === 'on') {
+          const scrolled = await panel.send('Page.captureScreenshot', { format: 'png' });
+          await writeFile(resolve(`.impeccable/review/auto-tabs-scrolled-${width}.png`), Buffer.from(scrolled.data, 'base64'));
+        }
       }
     } finally {
       await source.send('Page.bringToFront');
@@ -154,7 +162,8 @@ try {
   await delay(1800);
   assert.equal(await count(), 0, "Opening the panel or a tab must not scan it");
   assert.equal(await state(), "manual");
-  assert.match(await panel.evaluate("document.querySelector('.auto-updates').textContent"), /also keeps this tab updated/, "Consent must be explained before Scan page");
+  assert.equal(await panel.evaluate("Boolean(document.querySelector('.auto-updates'))"), false, 'The pre-scan explanatory header section must be removed');
+  assert.match(await panel.evaluate("document.querySelector('#scan-update-hint').textContent"), /Scan enables auto-updates/, 'The existing source line must retain the short scan disclosure');
   await record('disclosure');
   await manual();
   await until(async () => (await current())?.resources.length >= 12, "First manual capture did not save");
