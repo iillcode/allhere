@@ -5,7 +5,7 @@ import { join, relative, resolve, sep } from "node:path";
 const require = createRequire(new URL("../packages/library-ui/package.json", import.meta.url));
 const { zipSync, unzipSync } = require("fflate");
 const root = resolve("apps/extension/out");
-const destination = resolve("apps/web/public/downloads/allhere-extension.zip");
+const destination = resolve("apps/web/public/downloads/stashwell-extension.zip");
 const files = {};
 
 async function addFiles(directory) {
@@ -33,5 +33,5 @@ if (Object.keys(unpacked).length !== Object.keys(files).length || !unpacked["man
 }
 await mkdir(resolve("apps/web/public/downloads"), { recursive: true });
 await writeFile(destination, archive);
-console.log(`Packaged Allhere ${manifest.version}: ${Object.keys(files).length} files, ${archive.length} bytes`);
+console.log(`Packaged Stashwell ${manifest.version}: ${Object.keys(files).length} files, ${archive.length} bytes`);
 console.log(destination);

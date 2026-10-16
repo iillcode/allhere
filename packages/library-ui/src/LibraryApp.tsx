@@ -59,7 +59,7 @@ import {
   type PageCapture,
   type ResourceKind,
   type RiskLevel,
-} from "@allhere/core";
+} from "@stashwell/core";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type HTMLAttributes, type ReactNode } from "react";
 import type { LibraryAdapter } from "./adapters";
 import { iconAsSvg, loadImageFile } from "./assetFiles";
@@ -397,7 +397,7 @@ function previewFontFamily(url: string): Promise<string | undefined> {
   const existing = previewFontLoads.get(url);
   if (existing) return existing;
 
-  const family = `AllherePreview_${previewFontLoads.size}`;
+  const family = `StashwellPreview_${previewFontLoads.size}`;
   const loaded = fontFileForPreview(url)
     .then(async (fontFile) => {
       const blobUrl = await verifiedFontBlobUrl(fontFile);
@@ -994,10 +994,10 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
     if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
-      const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved"] as const;
+      const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved", "identityUrl"] as const;
       if (savedCapture?.resources.length === existing.resources.length && savedCapture.resources.every((resource, index) => {
         const old = existing.resources[index];
-        return fields.every(field => old[field] === resource[field]);
+        return fields.every(field => old[field] === resource[field]) && JSON.stringify(old.variantUrls ?? []) === JSON.stringify(resource.variantUrls ?? []);
       })) return { captures: previous, exclusions, savedCapture: existing };
     }
     return { captures: next, exclusions, savedCapture };
@@ -1093,7 +1093,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const downloadUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = downloadUrl;
-    anchor.download = `allhere-library-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `stashwell-library-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1_000);
     setNotice("Your library archive has been downloaded.");
@@ -1240,12 +1240,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         filename: (extension?: string, sourceFilename?: string) => filenameForResource(item, extension, sourceFilename),
       })), (processed, total) => setBulkProgress(`Preparing ${processed} of ${total}`), downloadFormats);
       const suffix = selectedCapture?.hostname.replace(/[^a-z0-9.-]+/gi, "-") || "resources";
-      const filename = `allhere-${suffix}-${new Date().toISOString().slice(0, 10)}.zip`;
+      const filename = `stashwell-${suffix}-${new Date().toISOString().slice(0, 10)}.zip`;
       const objectUrl = URL.createObjectURL(result.blob);
       if (mode === "extension") {
         try { await downloads.start({ url: objectUrl, kind: "other", title: filename, filename }); }
         finally { window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000); }
-        setNotice(result.skipped ? `${result.included} resources included; ${result.skipped} skipped. See allhere-skipped.txt inside the ZIP.` : "");
+        setNotice(result.skipped ? `${result.included} resources included; ${result.skipped} skipped. See stashwell-skipped.txt inside the ZIP.` : "");
         return;
       }
       const anchor = document.createElement("a");
@@ -1256,7 +1256,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
       setNotice(result.skipped
-        ? `Downloading ${filename}: ${result.included} included, ${result.skipped} skipped. See allhere-skipped.txt inside the ZIP.`
+        ? `Downloading ${filename}: ${result.included} included, ${result.skipped} skipped. See stashwell-skipped.txt inside the ZIP.`
         : `Downloading ${filename} with ${countLabel(result.included, "resource")}.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The selected resources could not be added to a ZIP.");
@@ -1555,7 +1555,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   return (
-    <div ref={shellRef} className={`allhere-shell allhere-shell--${mode}${selectedItems.length ? " allhere-shell--selecting" : ""}${downloads.jobs.length ? " allhere-shell--downloading" : ""}`}>
+    <div ref={shellRef} className={`stashwell-shell stashwell-shell--${mode}${selectedItems.length ? " stashwell-shell--selecting" : ""}${downloads.jobs.length ? " stashwell-shell--downloading" : ""}`}>
       <header ref={topbarRef} className="topbar">
         <div className="topbar__brand-cluster">
           <button
@@ -1567,11 +1567,11 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           >
             {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Allhere library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
+          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Stashwell library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
             <span className="brand__mark" aria-hidden="true">
-              <img src="/icons/allhere.svg" alt="" />
+              <img src="/icons/stashwell.svg" alt="" />
             </span>
-            <span className="brand__word">allhere</span>
+            <span className="brand__word">Stashwell</span>
           </a>
         </div>
 
@@ -1601,7 +1601,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               type="button" aria-label="Scan this page"
               aria-describedby={!managementOpen ? "scan-update-hint" : undefined}
               data-scan-state={busy ? "scanning" : needsScan ? "needed" : "ready"}
-              title={autoUpdates.authorized ? "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
+              title={autoUpdates.authorized ? "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Stashwell is open. Click the toolbar icon first if access is needed."}
               onClick={() => void handleCapture()} disabled={busy || !loaded}
             >
               {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <TabFavicon key={`${activePage.page.tabId}:${activePage.page.revision}`} url={activePage.page.faviconUrl} />}
@@ -1812,7 +1812,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Allhere's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Allhere is visible. Close Allhere to stop automatic updates.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
+              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Stashwell's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Stashwell is visible. Close Stashwell to stop automatic updates.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"
@@ -1931,7 +1931,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <h2>Your library starts with a page</h2>
                     <p>
                       {mode === "extension"
-                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open. Close Allhere to stop them."
+                        ? "Click Stashwell's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open. Close Stashwell to stop them."
                         : "Capture resources in the Chrome side panel, then import your library here."}
                     </p>
                     {mode === "extension" ? (

@@ -1,5 +1,5 @@
 {
-  "name": "allhere",
+  "name": "stashwell",
   "private": true,
   "packageManager": "pnpm@11.18.0",
   "scripts": {
@@ -8,6 +8,8 @@
     "package:extension": "node scripts/package-extension.mjs",
     "generate:brand": "node scripts/generate-brand-assets.mjs",
     "typecheck": "turbo typecheck",
+    "test:capture": "pnpm --filter @stashwell/extension build && node scripts/verify-resource-identity.mjs && node scripts/verify-image-actions.mjs --scan-check && node scripts/verify-auto-updates.mjs && node scripts/verify-library-management.mjs",
+    "test:capture:live": "pnpm --filter @stashwell/extension build && node scripts/verify-real-sites.mjs",
     "clean": "turbo clean"
   },
   "devDependencies": {

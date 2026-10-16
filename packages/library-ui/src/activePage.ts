@@ -83,7 +83,7 @@ export function createActivePageObserver(api: () => ActivePageBrowser | undefine
       if (tabId === activeTabId) refresh();
     };
     const invoked = (message: { type?: string }) => {
-      if (message?.type === "allhere.tab.invoked") refresh();
+      if (message?.type === "stashwell.tab.invoked") refresh();
     };
     const visible = () => { if (document.visibilityState === "visible") refresh(); };
     const revoked = () => {

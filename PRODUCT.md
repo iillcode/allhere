@@ -28,7 +28,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 ## Capabilities and Constraints
 
-- Gather images, links, media, and file/resource URLs present in a webpage. A tab’s first manual scan enables automatic updates while that tab is active and Allhere is visible; closing the panel ends this authorization.
+- Gather images, links, media, and file/resource URLs present in a webpage. A tab’s first manual scan enables automatic updates while that tab is active and Stashwell is visible; closing the panel ends this authorization.
 - Keep captured images in the webpage’s rendered reading order, including CSS backgrounds, shadow roots, and accessible frames. Refresh that order on rescans while preserving saved choices and older collected resources.
 - Preserve source image dimensions in previews and downloads. Offer image format conversion for single downloads and bulk ZIPs.
 - Show resource details and clear security signals, especially for links.
@@ -38,7 +38,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 ## Brand Commitments
 
-Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Allhere and uses a freeform blue lowercase a monogram with a transparent background and no surrounding square.
+Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Stashwell. Its blue folded S mark suggests useful finds tucked away for later: a continuous ribbon with two diagonal page ends, a transparent background, and no surrounding square. Use the same mark in the library, extension toolbar, website, and store artwork; capitalize the wordmark as Stashwell.
 
 ## Evidence on Hand
 

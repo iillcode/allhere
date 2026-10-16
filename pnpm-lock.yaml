@@ -17,7 +17,10 @@ importers:
 
   apps/extension:
     dependencies:
-      '@allhere/library-ui':
+      '@fontsource-variable/geist':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@stashwell/library-ui':
         specifier: workspace:*
         version: link:../../packages/library-ui
       react:
@@ -45,7 +48,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@allhere/library-ui':
+      '@stashwell/library-ui':
         specifier: workspace:*
         version: link:../../packages/library-ui
       next:
@@ -79,12 +82,12 @@ importers:
 
   packages/library-ui:
     dependencies:
-      '@allhere/core':
-        specifier: workspace:*
-        version: link:../core
       '@fontsource/roboto':
         specifier: ^5.2.0
         version: 5.3.0
+      '@stashwell/core':
+        specifier: workspace:*
+        version: link:../core
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
@@ -335,6 +338,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource-variable/geist@5.3.0':
+    resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
 
   '@fontsource/roboto@5.3.0':
     resolution: {integrity: sha512-BapRJOWYP+LZ21zp+wBQjfpPYKRoxc4LspJ/RLuI+HSMBD5u/X4O+ESDrSvEqDSy0rAl7GwBJ+09mdc16cVQ1Q==}
@@ -1260,6 +1266,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@fontsource-variable/geist@5.3.0': {}
 
   '@fontsource/roboto@5.3.0': {}
 

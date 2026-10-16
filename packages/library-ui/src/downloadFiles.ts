@@ -1,4 +1,4 @@
-import type { ResourceKind } from "@allhere/core";
+import type { ResourceKind } from "@stashwell/core";
 
 const MIME_EXTENSIONS: Record<string, string> = {
   "application/pdf": "pdf", "application/zip": "zip", "application/json": "json",

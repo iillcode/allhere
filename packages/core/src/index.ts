@@ -32,6 +32,10 @@ export type CapturedResource = {
   id: string;
   kind: ResourceKind;
   url: string;
+  /** Stable source for an explicitly related group of responsive images. */
+  identityUrl?: string;
+  /** Sources declared by the same img/srcset/picture element. */
+  variantUrls?: string[];
   pageUrl: string;
   pageTitle: string;
   label: string;
@@ -56,14 +60,16 @@ export type PageCapture = {
 };
 
 export type LibraryArchive = {
-  format: "allhere-library";
+  format: "stashwell-library";
   version: 1;
   exportedAt: string;
   captures: PageCapture[];
 };
 
+// Keep the original storage key so upgrading to Stashwell retains collections.
 export const LIBRARY_STORAGE_KEY = "allhere.library.v1";
-export const ARCHIVE_FORMAT = "allhere-library" as const;
+export const ARCHIVE_FORMAT = "stashwell-library" as const;
+const LEGACY_ARCHIVE_FORMAT = "allhere-library";
 
 const SHORTENERS = new Set([
   "bit.ly",
@@ -328,11 +334,11 @@ export function parseArchive(value: unknown): LibraryArchive {
   if (
     !value ||
     typeof value !== "object" ||
-    (value as Partial<LibraryArchive>).format !== ARCHIVE_FORMAT ||
+    ![ARCHIVE_FORMAT, LEGACY_ARCHIVE_FORMAT].includes(String((value as { format?: unknown }).format)) ||
     (value as Partial<LibraryArchive>).version !== 1 ||
     !Array.isArray((value as Partial<LibraryArchive>).captures)
   ) {
-    throw new Error("This file is not a supported Allhere library archive.");
+    throw new Error("This file is not a supported Stashwell library archive.");
   }
 
   const now = new Date().toISOString();
@@ -373,6 +379,9 @@ export function parseArchive(value: unknown): LibraryArchive {
             id: stringId,
             kind: resource.kind,
             url: resource.url,
+            ...((resource.kind === "image" || resource.kind === "icon") && validVisualUrl(resource.identityUrl) ? { identityUrl: resource.identityUrl } : {}),
+            ...((resource.kind === "image" || resource.kind === "icon") && Array.isArray(resource.variantUrls)
+              ? { variantUrls: [...new Set(resource.variantUrls.filter(validVisualUrl))] } : {}),
             pageUrl: pageUrl.href,
             pageTitle,
             label: resource.label,
@@ -397,7 +406,7 @@ export function parseArchive(value: unknown): LibraryArchive {
       hostname: pageUrl.hostname,
       ...(typeof candidate.faviconUrl === "string" ? { faviconUrl: candidate.faviconUrl } : {}),
       capturedAt,
-      resources,
+      resources: dedupeResources(resources),
     } satisfies PageCapture];
   });
 
@@ -413,85 +422,155 @@ export function mergeCaptures(
   current: PageCapture[],
   incoming: PageCapture[],
 ): PageCapture[] {
-  const byId = new Map(current.map((capture) => [capture.id, capture]));
-  for (const capture of incoming) byId.set(capture.id, capture);
-  return [...byId.values()].sort(
+  const byPage = new Map<string, PageCapture>();
+  for (const capture of [...current, ...incoming]) {
+    const previous = byPage.get(capture.pageUrl);
+    const resources = dedupeResources([...(previous?.resources ?? []), ...capture.resources]);
+    const byIdentity = new Map(resources.flatMap(resource => resourceIdentityKeys(resource).map(key => [key, resource] as const)));
+    const ordered = new Set<CapturedResource>();
+    for (const resource of capture.resources) {
+      // The retained identity may come from an older capture. Any explicit
+      // alias can locate it when the latest scan uses a different rendition.
+      const merged = resourceIdentityKeys(resource).map(key => byIdentity.get(key)).find(Boolean);
+      if (merged) ordered.add(merged);
+    }
+    byPage.set(capture.pageUrl, {
+      ...capture,
+      id: previous?.id ?? capture.id,
+      resources: [...ordered, ...resources.filter(resource => !ordered.has(resource))],
+    });
+  }
+  return [...byPage.values()].sort(
     (left, right) =>
       new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime(),
   );
 }
 
+function validVisualUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:" || protocol === "blob:"
+      || (protocol === "data:" && /^data:image\//i.test(value));
+  } catch { return false; }
+}
+
 // Only URL parameters that describe a resized representation are collapsed.
 // Signed IDs and other query parameters stay part of the resource identity.
-export function resourceIdentity(resource: Pick<CapturedResource, "kind" | "url">): string {
-  if (resource.kind !== "image" && resource.kind !== "icon") return `${resource.kind}:${resource.url}`;
+function visualUrlIdentity(rawUrl: string): string {
   try {
-    const url = new URL(resource.url);
-    // SVG fragment IDs select different symbols in the same sprite file.
-    if (resource.kind !== "icon") url.hash = "";
-    for (const name of [...url.searchParams.keys()]) {
-      if (/^(?:dpr|fm|format|h|height|imwidth|q|quality|sz|w|width|fbclid|gclid|igshid|utm_.*)$/i.test(name)) {
-        url.searchParams.delete(name);
+    const url = new URL(rawUrl);
+    // Data payloads are opaque: '?' and '#' can be part of the image itself.
+    if (url.protocol === "data:") return `visual:${rawUrl}`;
+    // A fragment can select an SVG view or a sprite, even on an extensionless URL.
+    // Keep the same identity when a visual is discovered as both image and icon.
+    const signed = [...url.searchParams.keys()].some(name => /^(?:sig|signature|token|x-amz-.+|x-goog-.+|policy|key-pair-id)$/i.test(name));
+    if (!signed) {
+      for (const name of [...url.searchParams.keys()]) {
+        if (/^(?:dpr|fm|format|h|height|imwidth|q|quality|sz|w|width|fbclid|gclid|igshid|utm_.*)$/i.test(name)) {
+          url.searchParams.delete(name);
+        }
       }
+      url.searchParams.sort();
     }
-    url.searchParams.sort();
     return `visual:${url.href}`;
-  } catch { return `visual:${resource.url}`; }
+  } catch { return `visual:${rawUrl}`; }
+}
+
+type ResourceIdentitySource = Pick<CapturedResource, "kind" | "url" | "identityUrl" | "variantUrls">;
+
+export function resourceIdentity(resource: ResourceIdentitySource): string {
+  if (resource.kind !== "image" && resource.kind !== "icon") return `${resource.kind}:${resource.url}`;
+  return visualUrlIdentity(validVisualUrl(resource.identityUrl) ? resource.identityUrl : resource.url);
+}
+
+/** Only explicitly declared responsive alternatives supplement URL identity. */
+export function resourceIdentityKeys(resource: ResourceIdentitySource): string[] {
+  if (resource.kind !== "image" && resource.kind !== "icon") return [resourceIdentity(resource)];
+  return [...new Set([
+    resourceIdentity(resource),
+    visualUrlIdentity(resource.url),
+    ...(Array.isArray(resource.variantUrls) ? resource.variantUrls.filter(validVisualUrl).map(visualUrlIdentity) : []),
+  ])];
 }
 
 export function dedupeResources(resources: CapturedResource[]): CapturedResource[] {
-  const result: CapturedResource[] = [];
+  // A later responsive group can bridge several already distinct resources.
+  // Resolve all connected aliases first, preserving the earliest record's ID.
+  const parents = resources.map((_, index) => index);
+  const root = (index: number): number => {
+    let current = index;
+    while (parents[current] !== current) current = parents[current]!;
+    while (parents[index] !== index) {
+      const next = parents[index]!;
+      parents[index] = current;
+      index = next;
+    }
+    return current;
+  };
   const indexes = new Map<string, number>();
-  for (const resource of resources) {
-    const key = resourceIdentity(resource);
-    const index = indexes.get(key);
-    if (index === undefined) { indexes.set(key, result.length); result.push(resource); continue; }
-    const existing = result[index];
-    const visual = resource.kind === "image" || resource.kind === "icon";
-    const oldArea = (existing.width ?? 0) * (existing.height ?? 0);
-    const newArea = (resource.width ?? 0) * (resource.height ?? 0);
-    const preferNew = visual ? newArea > oldArea : true;
-    const winner = preferNew ? resource : existing;
-    const descriptive = (label: string) => !/^(?:image|icon|page icon|inline svg icon|background image|background icon)$/i.test(label);
-    result[index] = {
-      ...winner,
-      id: existing.id,
-      kind: visual && (existing.kind === "icon" || resource.kind === "icon") ? "icon" : winner.kind,
-      label: descriptive(winner.label) ? winner.label : descriptive(resource.label) ? resource.label : descriptive(existing.label) ? existing.label : winner.label,
-      alt: winner.alt || resource.alt || existing.alt,
-      description: winner.description || resource.description || existing.description,
-      saved: existing.saved || resource.saved || undefined,
-      capturedAt: resource.capturedAt,
+  resources.forEach((resource, index) => {
+    for (const key of resourceIdentityKeys(resource)) {
+      const previous = indexes.get(key);
+      if (previous === undefined) indexes.set(key, index);
+      else {
+        const left = root(previous);
+        const right = root(index);
+        parents[Math.max(left, right)] = Math.min(left, right);
+      }
+    }
+  });
+  const groups = new Map<number, CapturedResource[]>();
+  resources.forEach((resource, index) => {
+    const identity = root(index);
+    const group = groups.get(identity);
+    if (group) group.push(resource);
+    else groups.set(identity, [resource]);
+  });
+
+  return [...groups.values()].map(group => {
+    const first = group[0]!;
+    let existing = first;
+    for (const resource of group.slice(1)) {
+      const visual = resource.kind === "image" || resource.kind === "icon";
+      const oldArea = (existing.width ?? 0) * (existing.height ?? 0);
+      const newArea = (resource.width ?? 0) * (resource.height ?? 0);
+      const preferNew = visual ? newArea > oldArea : true;
+      const winner = preferNew ? resource : existing;
+      const descriptive = (label: string) => !/^(?:image|icon|page icon|inline svg icon|background image|background icon)$/i.test(label);
+      existing = {
+        ...winner,
+        id: existing.id,
+        kind: visual && (existing.kind === "icon" || resource.kind === "icon") ? "icon" : winner.kind,
+        label: descriptive(winner.label) ? winner.label : descriptive(resource.label) ? resource.label : descriptive(existing.label) ? existing.label : winner.label,
+        alt: winner.alt || resource.alt || existing.alt,
+        description: winner.description || resource.description || existing.description,
+        saved: existing.saved || resource.saved || undefined,
+        capturedAt: resource.capturedAt,
+      };
+    }
+    const { identityUrl: _identityUrl, variantUrls: _variantUrls, ...result } = existing;
+    if (existing.kind !== "image" && existing.kind !== "icon") return result;
+    const variantUrls = [...new Set(group.flatMap(resource => [
+      ...(Array.isArray(resource.variantUrls) ? resource.variantUrls : []),
+      resource.identityUrl, resource.url,
+    ]).filter(validVisualUrl))];
+    const explicitAliases = group.some(resource => validVisualUrl(resource.identityUrl)
+      || (Array.isArray(resource.variantUrls) && resource.variantUrls.some(validVisualUrl)));
+    if (!explicitAliases && variantUrls.length < 2) return result;
+    return {
+      ...result,
+      identityUrl: validVisualUrl(first.identityUrl) ? first.identityUrl : first.url,
+      variantUrls,
     };
-  }
-  return result;
+  });
 }
 
 export function upsertPageCapture(
   current: PageCapture[],
   incoming: PageCapture,
 ): PageCapture[] {
-  const previous = current.find((capture) => capture.pageUrl === incoming.pageUrl);
-  const merged = dedupeResources([...(previous?.resources ?? []), ...incoming.resources]);
-  const byIdentity = new Map(merged.map(resource => [resourceIdentity(resource), resource]));
-  const pageOrder = new Set(incoming.resources.map(resourceIdentity));
-  // Use the latest page order while preserving stable IDs, saved choices, and
-  // previously collected resources that are no longer present on the page.
-  const resources = [
-    ...[...pageOrder].map(identity => byIdentity.get(identity)!),
-    ...merged.filter(resource => !pageOrder.has(resourceIdentity(resource))),
-  ];
-  const replacement = previous
-    ? {
-        ...incoming,
-        id: previous.id,
-        resources,
-      }
-    : { ...incoming, resources };
-  return mergeCaptures(
-    current.filter((capture) => capture.pageUrl !== incoming.pageUrl),
-    [replacement],
-  );
+  return mergeCaptures(current, [incoming]);
 }
 
 export function flattenResources(captures: PageCapture[]): CapturedResource[] {

@@ -48,9 +48,9 @@ export function LandingHeader() {
   return (
     <header className={styles.header} ref={header}>
       <div className={styles.headerInner}>
-        <a className={styles.brand} href="/" aria-label="Allhere home">
-          <img src="/icons/allhere.svg" width="34" height="34" alt="" />
-          <span>allhere</span>
+        <a className={styles.brand} href="/" aria-label="Stashwell home">
+          <img src="/icons/stashwell.svg" width="34" height="34" alt="" />
+          <span>Stashwell</span>
         </a>
         <nav
           className={styles.navigation}
@@ -65,11 +65,11 @@ export function LandingHeader() {
         <div className={styles.headerActions}>
           <a
             className={styles.download}
-            href="/downloads/allhere-extension.zip"
-            download="allhere-extension.zip"
+            href="/downloads/stashwell-extension.zip"
+            download="stashwell-extension.zip"
             onClick={() => setOpen(false)}
           >
-            Get Allhere
+            Get Stashwell
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg>
           </a>
           <button

@@ -1,4 +1,4 @@
-import type { ResourceKind } from "@allhere/core";
+import type { ResourceKind } from "@stashwell/core";
 import { loadImageFile } from "./assetFiles";
 
 export const MAX_DRAG_BYTES = 64 * 1024 * 1024;

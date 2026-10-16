@@ -3,10 +3,11 @@ import {
   createId,
   dedupeResources,
   inspectResourceUrl,
+  mergeCaptures,
   type CapturedResource,
   type PageCapture,
   type ResourceKind,
-} from "@allhere/core";
+} from "@stashwell/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
 import { createActivePageObserver, type ActivePage, type ActivePageBrowser } from "./activePage";
 
@@ -31,6 +32,8 @@ type RawResource = {
   width?: number;
   height?: number;
   mimeType?: string;
+  identityUrl?: string;
+  variantUrls?: string[];
   position?: [top: number, left: number, documentIndex: number];
 };
 
@@ -120,8 +123,9 @@ function normalizeStored(value: unknown): PageCapture[] {
     "brave:", "chrome:", "chrome-extension:", "chrome-untrusted:", "moz-extension:",
   ]);
 
-  return (value as PageCapture[]).map((capture) => {
+  return mergeCaptures((value as PageCapture[]).filter(capture => capture && typeof capture.pageUrl === "string" && Array.isArray(capture.resources)).map((capture) => {
     const resources: CapturedResource[] = capture.resources.filter((resource) => {
+      if (!resource || typeof resource.url !== "string" || typeof resource.label !== "string") return false;
       try {
         if (browserOnlyProtocols.has(new URL(resource.url).protocol)) return false;
       } catch {
@@ -131,7 +135,7 @@ function normalizeStored(value: unknown): PageCapture[] {
     });
 
     return { ...capture, resources: dedupeResources(resources) };
-  });
+  }), []);
 }
 
 export function createWebAdapter(): LibraryAdapter {
@@ -155,23 +159,23 @@ export function createWebAdapter(): LibraryAdapter {
       if (typeof window !== "undefined") {
         if (exclusions) window.localStorage.setItem(CAPTURE_EXCLUSIONS_KEY, JSON.stringify(exclusions));
         window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(captures));
-        window.dispatchEvent(new CustomEvent("allhere-library-updated", { detail: captures }));
-        if (exclusions) window.dispatchEvent(new CustomEvent("allhere-exclusions-updated", { detail: exclusions }));
+        window.dispatchEvent(new CustomEvent("stashwell-library-updated", { detail: captures }));
+        if (exclusions) window.dispatchEvent(new CustomEvent("stashwell-exclusions-updated", { detail: exclusions }));
       }
     },
     subscribeExclusions: (listener) => {
       if (typeof window === "undefined") return () => undefined;
       const handler = (event: Event) => listener((event as CustomEvent<CaptureExclusions>).detail);
-      window.addEventListener("allhere-exclusions-updated", handler);
-      return () => window.removeEventListener("allhere-exclusions-updated", handler);
+      window.addEventListener("stashwell-exclusions-updated", handler);
+      return () => window.removeEventListener("stashwell-exclusions-updated", handler);
     },
     subscribe: (listener) => {
       if (typeof window === "undefined") return () => undefined;
       const handler = (event: Event) => {
         listener((event as CustomEvent<PageCapture[]>).detail ?? []);
       };
-      window.addEventListener("allhere-library-updated", handler);
-      return () => window.removeEventListener("allhere-library-updated", handler);
+      window.addEventListener("stashwell-library-updated", handler);
+      return () => window.removeEventListener("stashwell-library-updated", handler);
     },
   };
 }
@@ -183,10 +187,10 @@ export function createExtensionAdapter(): LibraryAdapter {
     if (!api?.tabs || !api.scripting) throw new Error("Capture is available from the installed Chrome side panel.");
     const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
     if (typeof tab?.id !== "number" || !tab.url) {
-      throw new Error("Click Allhere's toolbar icon on this tab, then choose Scan page.");
+      throw new Error("Click Stashwell's toolbar icon on this tab, then choose Scan page.");
     }
     if (!/^https?:\/\//i.test(tab.url) || /^https?:\/\/(?:chromewebstore\.google\.com\/|chrome\.google\.com\/webstore(?:\/|$))/i.test(tab.url)) {
-      throw new Error("Chrome blocks scanning browser and Store pages. Open a regular webpage, click Allhere's toolbar icon, then choose Scan page.");
+      throw new Error("Chrome blocks scanning browser and Store pages. Open a regular webpage, click Stashwell's toolbar icon, then choose Scan page.");
     }
     // The toolbar action grants temporary activeTab access. Scan page uses
     // that access (or a host grant already allowed for a file action), without
@@ -231,7 +235,7 @@ export function createExtensionAdapter(): LibraryAdapter {
           if (!await matches()) throw new Error("The active page changed.");
           for (const frameId of new Set(frames.map(frame => frame.frameId ?? 0))) {
             if (ports.has(frameId)) continue;
-            const port = tabs.connect(tabId, { name: "allhere.auto-updates", frameId });
+            const port = tabs.connect(tabId, { name: "stashwell.auto-updates", frameId });
             port.onMessage.addListener(message => {
               if (stopped) return;
               if (message?.type === "frames") void connectFrames().catch(() => onChange());
@@ -294,11 +298,11 @@ export function createExtensionAdapter(): LibraryAdapter {
       const { api, tab } = await activePage();
       const revision = activePages.getRevision(tab.id);
       if (requestedPage && (requestedPage.tabId !== tab.id || requestedPage.url !== tab.url || requestedPage.revision !== revision)) {
-        throw new Error("The active page changed. Click Allhere's toolbar icon on the page you want to collect, then choose Scan page.");
+        throw new Error("The active page changed. Click Stashwell's toolbar icon on the page you want to collect, then choose Scan page.");
       }
       const [requestedTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
       if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url || activePages.getRevision(tab.id) !== revision) {
-        throw new Error("The active page changed. Click Allhere's toolbar icon on the page you want to collect, then choose Scan page.");
+        throw new Error("The active page changed. Click Stashwell's toolbar icon on the page you want to collect, then choose Scan page.");
       }
 
       let injected: Array<{ frameId?: number; result?: RawPageScan }>;
@@ -313,7 +317,7 @@ export function createExtensionAdapter(): LibraryAdapter {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (/cannot access contents|permission|restricted|chrome:\/\//i.test(message)) {
-          throw new Error("Click Allhere's toolbar icon on this tab, then choose Scan page. Chrome blocks access to some protected pages.");
+          throw new Error("Click Stashwell's toolbar icon on this tab, then choose Scan page. Chrome blocks access to some protected pages.");
         }
         throw new Error(`Could not scan this page${message ? `: ${message}` : ". Try again."}`);
       }
@@ -336,7 +340,7 @@ export function createExtensionAdapter(): LibraryAdapter {
       }
       const [currentTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
       if (currentTab?.id !== tab.id || currentTab.url !== scan.pageUrl || activePages.getRevision(tab.id) !== revision) {
-        throw new Error("The page changed while scanning. Click Allhere's toolbar icon on the current tab, then choose Scan page.");
+        throw new Error("The page changed while scanning. Click Stashwell's toolbar icon on the current tab, then choose Scan page.");
       }
 
       const capturedAt = new Date().toISOString();
@@ -374,11 +378,21 @@ export function createExtensionAdapter(): LibraryAdapter {
 async function collectPageResources(): Promise<RawPageScan> {
   const resources: RawResource[] = [];
   const resourceIndexes = new Map<string, number>();
-  const blobImages = new Map<string, { kind: "image" | "icon"; label: string; extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position"> }>();
-  const spriteIcons = new Map<string, { label: string; width: number; height: number; position?: RawResource["position"] }>();
+  const blobImages = new Map<string, { kind: "image" | "icon"; label: string; extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position" | "identityUrl" | "variantUrls"> }>();
+  const spriteIcons: Array<{ clone: SVGSVGElement; kind: "icon" | "image"; label: string; width: number; height: number; position?: RawResource["position"] }> = [];
   const fontIcons = new Map<string, { glyph: string; label: string; family: string; font: string; color: string; direction: CanvasDirection; size: number; position?: RawResource["position"] }>();
   const pageUrl = window.location.href;
   const pageTitle = document.title || window.location.hostname;
+  const shadowRootFor = (element: Element): ShadowRoot | null => {
+    if (element.shadowRoot) return element.shadowRoot;
+    // The extension API also exposes author-created closed roots. Exclude native
+    // form/media controls, whose browser internals are not page assets.
+    if (!(element instanceof HTMLElement) || /^(?:input|textarea|select|video|audio|img)$/.test(element.localName)) return null;
+    try {
+      return (globalThis as typeof globalThis & { chrome?: { dom?: { openOrClosedShadowRoot: (element: HTMLElement) => ShadowRoot | null } } })
+        .chrome?.dom?.openOrClosedShadowRoot(element) ?? null;
+    } catch { return null; }
+  };
   let pageElements: Element[] | undefined;
   const queryAll = <T extends Element>(selector: string): T[] => {
     if (pageElements) return pageElements.filter(element => element.matches(selector)) as T[];
@@ -387,7 +401,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     while (pending.length) {
       const element = pending.pop()!;
       if (element.matches(selector)) found.push(element as T);
-      const children = [...(element.shadowRoot?.children ?? []), ...element.children];
+      const children = [...(shadowRootFor(element)?.children ?? []), ...element.children];
       for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
     }
     return found;
@@ -452,12 +466,7 @@ async function collectPageResources(): Promise<RawPageScan> {
     }
     return [];
   });
-  const resizeParameters = new Set([
-    "dpr", "fm", "format", "h", "height", "imwidth", "q", "quality", "sz", "w", "width",
-  ]);
-  const trackingParameters = new Set([
-    "fbclid", "gclid", "igshid", "utm_campaign", "utm_content", "utm_medium", "utm_source", "utm_term",
-  ]);
+  const baseUrl = document.baseURI || pageUrl;
   const browserOnlyProtocols = new Set(["brave:", "chrome:", "chrome-extension:", "chrome-untrusted:", "moz-extension:"]);
   const iconExtensions = new Set(["ico"]);
   const videoExtensions = new Set(["m3u8", "m4v", "mkv", "mov", "mp4", "mpd", "ogv", "webm"]);
@@ -503,28 +512,16 @@ async function collectPageResources(): Promise<RawPageScan> {
     }
   };
 
-  const imageIdentity = (rawUrl: string, kind: ResourceKind) => {
-    const url = new URL(rawUrl, pageUrl);
-    if (kind !== "icon") url.hash = "";
-    for (const parameter of resizeParameters) url.searchParams.delete(parameter);
-    for (const parameter of trackingParameters) url.searchParams.delete(parameter);
-    for (const parameter of Array.from(url.searchParams.keys())) {
-      if (parameter.toLowerCase().startsWith("utm_")) url.searchParams.delete(parameter);
-    }
-    url.searchParams.sort();
-    return url.href;
-  };
-
   const add = (
     kind: ResourceKind,
     rawUrl: string | undefined,
     label: string,
-    extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position"> = {},
+    extras: Pick<RawResource, "alt" | "description" | "width" | "height" | "mimeType" | "position" | "identityUrl" | "variantUrls"> = {},
   ) => {
-    if (!rawUrl) return;
+    if (!rawUrl?.trim()) return;
     let url: string;
     try {
-      const parsed = new URL(rawUrl, pageUrl);
+      const parsed = new URL(rawUrl, baseUrl);
       if (browserOnlyProtocols.has(parsed.protocol)) return;
       if ((kind === "image" || kind === "icon") && parsed.protocol === "blob:") {
         const previous = blobImages.get(parsed.href);
@@ -533,16 +530,20 @@ async function collectPageResources(): Promise<RawPageScan> {
       }
       if (kind === "image" && !["http:", "https:", "data:"].includes(parsed.protocol)) return;
       if (kind === "icon" && !["http:", "https:", "data:"].includes(parsed.protocol)) return;
-      if (kind === "font" && !["http:", "https:"].includes(parsed.protocol)) return;
+      if (kind === "font" && !["http:", "https:"].includes(parsed.protocol) &&
+        !(parsed.protocol === "data:" && /^data:(?:font\/|application\/(?:font-|x-font-|vnd\.ms-fontobject|octet-stream))/i.test(rawUrl))) return;
       if ((kind === "video" || kind === "audio") && !["http:", "https:"].includes(parsed.protocol)) return;
-      if (["image", "video", "audio"].includes(kind)) parsed.hash = "";
+      if (["video", "audio"].includes(kind)) parsed.hash = "";
+      if (parsed.protocol === "data:" && (kind === "image" || kind === "icon") && !/^data:image\//i.test(rawUrl)) return;
       url = parsed.href;
     } catch {
       return;
     }
 
     const visualAsset = kind === "image" || kind === "icon";
-    const dedupeKey = visualAsset ? `visual:${imageIdentity(url, kind)}` : `${kind}:${url}`;
+    // Collapse exact discoveries here. Shared core identity handles resize
+    // variants after frames have been combined, so both paths use one policy.
+    const dedupeKey = visualAsset ? `visual:${url}` : `${kind}:${url}`;
     const existingIndex = resourceIndexes.get(dedupeKey);
     const nextResource = { kind, url, label: label.trim() || url, ...extras };
     if (existingIndex !== undefined) {
@@ -574,6 +575,10 @@ async function collectPageResources(): Promise<RawPageScan> {
           alt: winner.alt || nextResource.alt || existing.alt,
           description: winner.description || nextResource.description || existing.description,
           position: firstPosition(existing.position, nextResource.position),
+          identityUrl: existing.identityUrl || nextResource.identityUrl,
+          variantUrls: existing.variantUrls || nextResource.variantUrls
+            ? [...new Set([...(existing.variantUrls ?? []), ...(nextResource.variantUrls ?? [])])]
+            : undefined,
         };
       }
       return;
@@ -582,11 +587,11 @@ async function collectPageResources(): Promise<RawPageScan> {
     resources.push(nextResource);
   };
 
-  const iconName = /\b(icon|favicon|logo|brand)\b/i;
+  const iconName = /(?:^|[\W_])(icons?|favicon|logo|brand)(?:$|[\W_])/i;
   const cleanDescription = (value: string | null | undefined) => value?.replace(/\s+/g, " ").trim().slice(0, 280) || undefined;
   const usefulDescription = (value: string | undefined) => value && !/^(?:image|photo|picture|graphic|thumbnail|icon)$/i.test(value);
   queryAll<HTMLLinkElement>(
-    'link[rel~="icon"][href], link[rel~="apple-touch-icon"][href], link[rel~="mask-icon"][href]',
+    'link[rel~="icon"][href], link[rel~="apple-touch-icon"][href], link[rel~="apple-touch-icon-precomposed"][href], link[rel~="mask-icon"][href]',
   ).forEach((link) => {
     add("icon", link.href, link.title || link.getAttribute("sizes") || "Page icon", {
       position: positionFor(link),
@@ -594,15 +599,35 @@ async function collectPageResources(): Promise<RawPageScan> {
     });
   });
 
+  // Follow the srcset token boundaries, including commas inside data URLs.
+  const srcsetUrls = (value: string | null): string[] => {
+    const urls: string[] = [];
+    let rest = value?.trim() || "";
+    while (rest) {
+      rest = rest.replace(/^[\s,]+/, "");
+      const match = rest.match(/^\S+/);
+      if (!match) break;
+      const token = match[0];
+      urls.push(token.replace(/,+$/, ""));
+      rest = rest.slice(token.length);
+      if (!token.endsWith(",")) rest = rest.replace(/^[^,]*(?:,|$)/, "");
+    }
+    return urls;
+  };
+  const lazySources = (element: Element) => ["data-src", "data-original", "data-lazy-src", "data-lazy", "data-url"]
+    .map(name => element.getAttribute(name)).filter((value): value is string => !!value?.trim());
   queryAll<HTMLImageElement>("img").forEach((image) => {
     // Broken images are omitted, while pending and lazy images retain their URL
     // so a scan no longer depends on when the browser finished decoding them.
-    if (image.complete && (!image.naturalWidth || !image.naturalHeight)) return;
+    const broken = image.complete && (!image.naturalWidth || !image.naturalHeight);
     const identityText = [image.alt, image.title, image.getAttribute("aria-label"), image.src, image.className, image.id]
       .filter(Boolean)
       .join(" ");
-    const isIcon = iconName.test(identityText) || (image.getAttribute("role") === "presentation" &&
-      image.naturalWidth > 0 && image.naturalWidth <= 64 && image.naturalHeight <= 64);
+    const small = (image.naturalWidth || image.width) > 0 && (image.naturalWidth || image.width) <= 96 &&
+      (image.naturalHeight || image.height) > 0 && (image.naturalHeight || image.height) <= 96;
+    const vectorSource = /^(?:data:image\/svg\+xml)|\.svg(?:[?#]|$)/i.test(image.currentSrc || image.src || lazySources(image)[0] || "");
+    const isIcon = iconName.test(identityText) || (small && (vectorSource || image.getAttribute("role") === "presentation" ||
+      !!image.closest('button, [role="button"], [role="toolbar"]')));
     const root = image.getRootNode();
     const describedBy = image.getAttribute("aria-describedby")?.split(/\s+/).map((id) =>
       (root instanceof ShadowRoot ? root : image.ownerDocument).getElementById(id)?.textContent?.trim(),
@@ -617,101 +642,246 @@ async function collectPageResources(): Promise<RawPageScan> {
       image.getAttribute("title"),
       image.getAttribute("aria-label"),
     ].map(cleanDescription).find(usefulDescription);
-    add(isIcon ? "icon" : "image", image.currentSrc || image.src, image.alt || image.title || (isIcon ? "Page icon" : "Image"), {
+    const extras = {
       position: positionFor(image),
       alt: image.alt || undefined,
       description,
-      width: image.naturalWidth,
-      height: image.naturalHeight,
+      width: image.naturalWidth || image.width || undefined,
+      height: image.naturalHeight || image.height || undefined,
       mimeType: image.getAttribute("type") || undefined,
-    });
+    };
+    const deferred = [...lazySources(image), ...srcsetUrls(image.getAttribute("data-srcset")), ...srcsetUrls(image.getAttribute("data-lazy-srcset"))];
+    const responsive = srcsetUrls(image.getAttribute("srcset"));
+    const candidates = new Set([
+      ...deferred,
+      ...(!deferred.length && !broken ? [image.getAttribute("src") || image.currentSrc,
+        ...(responsive.length || image.parentElement?.localName === "picture" ? [image.currentSrc] : [])] : []),
+      ...responsive,
+    ]);
+    if (image.parentElement?.localName === "picture") for (const source of image.parentElement.querySelectorAll("source")) {
+      for (const url of [...srcsetUrls(source.getAttribute("srcset")), ...srcsetUrls(source.getAttribute("data-srcset")), ...lazySources(source)]) candidates.add(url);
+    }
+    const variantUrls = [...new Set([...candidates].flatMap(url => {
+      if (!url?.trim()) return [];
+      // Do not re-add the failed active URL from its srcset, but keep alternatives.
+      try {
+        const parsed = new URL(url, baseUrl);
+        if (broken && parsed.href === (image.currentSrc || image.src)) return [];
+        if (!["http:", "https:", "blob:", "data:"].includes(parsed.protocol)) return [];
+        if (parsed.protocol === "data:" && !/^data:image\//i.test(url)) return [];
+        return [parsed.href];
+      } catch { return []; }
+    }))];
+    // src, srcset, and picture sources describe one logical image. Keep all
+    // addresses for future matching without adding a card for each alternative.
+    // A lazy placeholder is deliberately excluded: many different images use it.
+    const active = image.currentSrc || image.src;
+    if (active && variantUrls.includes(active)) {
+      variantUrls.splice(variantUrls.indexOf(active), 1);
+      variantUrls.unshift(active);
+    }
+    for (const url of variantUrls) {
+      add(isIcon ? "icon" : "image", url, image.alt || image.title || (isIcon ? "Page icon" : "Image"), {
+        ...extras, identityUrl: variantUrls[0], variantUrls,
+      });
+    }
   });
 
-  queryAll<SVGSVGElement>("svg").forEach((svg) => {
-    const bounds = svg.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-    const semantic = [svg.getAttribute("aria-label"), svg.getAttribute("role"), svg.id, svg.className.baseVal].filter(Boolean).join(" ");
-    if (bounds.width > 512 || bounds.height > 512) {
-      if (!iconName.test(semantic)) return;
-    }
-
-    const clone = svg.cloneNode(true) as SVGSVGElement;
-    let unresolvedReference = false;
-    clone.querySelectorAll<SVGElement>("use").forEach((use) => {
-      const reference = use.getAttribute("href") || use.getAttribute("xlink:href");
-      if (!reference) {
-        unresolvedReference = true;
-        return;
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  const svgProperties = ["fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
+    "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "opacity", "color", "stop-color",
+    "stop-opacity", "clip-path", "clip-rule", "mask", "filter", "paint-order", "vector-effect", "font-family",
+    "font-size", "font-weight", "text-anchor", "dominant-baseline"];
+  const styledClone = (source: SVGElement) => {
+    const clone = source.cloneNode(true) as SVGElement;
+    const originals = [source, ...source.querySelectorAll<SVGElement>("*")];
+    const copies = [clone, ...clone.querySelectorAll<SVGElement>("*")];
+    originals.forEach((original, index) => {
+      const style = getComputedStyle(original);
+      for (const name of svgProperties) {
+        const value = style.getPropertyValue(name);
+        if (value) copies[index].setAttribute(name, value);
       }
-      if (reference.startsWith("#")) {
-        const symbol = (svg.getRootNode() as Document | ShadowRoot).getElementById(reference.slice(1));
-        if (!symbol || symbol.localName !== "symbol") {
+      // CSS transforms on child shapes affect their geometry. The root's CSS
+      // transform positions the entire icon on the page and is not intrinsic.
+      if (index && style.transform !== "none") copies[index].setAttribute("transform", style.transform);
+    });
+    return clone as SVGSVGElement;
+  };
+  const fragment = (reference: string): string | undefined => {
+    try {
+      if (reference.startsWith("#")) return decodeURIComponent(reference.slice(1));
+      const url = new URL(reference, baseUrl);
+      const current = new URL(pageUrl); current.hash = "";
+      const hash = url.hash; url.hash = "";
+      if (url.href === current.href && hash) return decodeURIComponent(hash.slice(1));
+    } catch { /* Invalid references cannot identify a local definition. */ }
+    return undefined;
+  };
+  const referenceIds = (root: Element) => {
+    const ids = new Set<string>();
+    for (const element of [root, ...root.querySelectorAll("*")]) for (const attribute of [...element.attributes]) {
+      if (attribute.name === "href" || attribute.name.endsWith(":href")) {
+        const id = fragment(attribute.value); if (id) ids.add(id);
+      }
+      for (const match of attribute.value.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)) {
+        const id = fragment(match[1]); if (id) ids.add(id);
+      }
+    }
+    return ids;
+  };
+  const embedDefinitions = (clone: SVGSVGElement, source: Document | ShadowRoot) => {
+    const visited = new Set<string>();
+    const defs = document.createElementNS(svgNamespace, "defs");
+    clone.prepend(defs);
+    while (true) {
+      const pending = [...referenceIds(clone)].filter(id => !visited.has(id));
+      if (!pending.length) break;
+      for (const id of pending) {
+        visited.add(id);
+        if ([...clone.querySelectorAll("[id]")].some(element => element.id === id)) continue;
+        const original = source.getElementById(id);
+        if (original && original.namespaceURI === svgNamespace) defs.append(original.cloneNode(true));
+      }
+    }
+    if (!defs.children.length) defs.remove();
+  };
+  const serializeSvg = (clone: SVGSVGElement, width: number, height: number) => {
+    clone.setAttribute("xmlns", svgNamespace);
+    if (!clone.hasAttribute("viewBox")) clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const viewBox = clone.getAttribute("viewBox")!.trim().split(/[\s,]+/).map(Number);
+    clone.setAttribute("width", String(viewBox[2] > 0 ? viewBox[2] : width));
+    clone.setAttribute("height", String(viewBox[3] > 0 ? viewBox[3] : height));
+    clone.querySelectorAll("script, foreignObject, iframe, object, embed, style, animate, animateTransform, set, title, desc").forEach(node => node.remove());
+    const referenced = referenceIds(clone);
+    const ids = new Map<string, string>();
+    for (const element of [clone, ...clone.querySelectorAll("*")]) if (element.id && referenced.has(element.id)) ids.set(element.id, `asset-${ids.size}`);
+    const hasText = !!clone.querySelector("text, tspan, textPath");
+    const usesCurrentColor = [clone, ...clone.querySelectorAll("*")].some(element => [...element.attributes].some(attribute => /currentcolor/i.test(attribute.value)));
+    const defaults: Record<string, string> = {
+      fill: "rgb(0, 0, 0)", "fill-opacity": "1", "fill-rule": "nonzero", stroke: "none", "stroke-width": "1px",
+      "stroke-opacity": "1", "stroke-linecap": "butt", "stroke-linejoin": "miter", "stroke-miterlimit": "4",
+      "stroke-dasharray": "none", "stroke-dashoffset": "0px", opacity: "1", "stop-color": "rgb(0, 0, 0)",
+      "stop-opacity": "1", "clip-path": "none", "clip-rule": "nonzero", mask: "none", filter: "none",
+      "paint-order": "normal", "vector-effect": "none",
+    };
+    const nonInherited = new Set(["opacity", "clip-path", "mask", "filter", "vector-effect", "stop-color", "stop-opacity"]);
+    const presentation = new WeakMap<Element, Record<string, string>>();
+    for (const element of [clone, ...clone.querySelectorAll("*")]) {
+      for (const attribute of [...element.attributes]) {
+        const name = attribute.name.toLowerCase();
+        let value = attribute.value.trim();
+        if (name.startsWith("on") || /^(?:class|style|role|tabindex|focusable|xml:base)$/.test(name) || /^(?:aria-|data-)/.test(name)) {
+          element.removeAttribute(attribute.name); continue;
+        }
+        if (name === "id") {
+          if (ids.has(value)) element.setAttribute("id", ids.get(value)!); else element.removeAttribute("id");
+          continue;
+        }
+        if (name === "href" || name.endsWith(":href")) {
+          const id = fragment(value);
+          if (id && ids.has(id)) value = `#${ids.get(id)}`;
+          else if (!(element.localName === "image" && /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon);base64,[a-z\d+/=\s]+$/i.test(value))) {
+            element.removeAttribute(attribute.name); continue;
+          }
+        } else if (/url\s*\(/i.test(value)) {
+          let invalid = false;
+          value = value.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/gi, (_, reference: string) => {
+            const id = fragment(reference);
+            if (id && ids.has(id)) return `url(#${ids.get(id)})`;
+            invalid = true; return "";
+          });
+          if (invalid) { element.removeAttribute(attribute.name); continue; }
+        }
+        if (/javascript:|expression\s*\(/i.test(value)) { element.removeAttribute(attribute.name); continue; }
+        element.setAttribute(attribute.name, value);
+      }
+      const inherited = element.parentElement ? presentation.get(element.parentElement) ?? defaults : defaults;
+      const values = { ...inherited };
+      for (const name of svgProperties) {
+        const value = element.getAttribute(name);
+        if (value === null) continue;
+        if (!nonInherited.has(name)) values[name] = value;
+        if ((!hasText && /^(?:font-|text-anchor|dominant-baseline)/.test(name)) || (!usesCurrentColor && name === "color") ||
+          value === (nonInherited.has(name) ? defaults[name] : inherited[name])) element.removeAttribute(name);
+      }
+      presentation.set(element, values);
+      // Deterministic markup deduplicates icons with different React IDs,
+      // accessibility labels, CSS classes, attribute order, and rendered sizes.
+      const attributes = [...element.attributes].sort((a, b) => a.name.localeCompare(b.name));
+      attributes.forEach(attribute => element.removeAttributeNode(attribute));
+      attributes.forEach(attribute => attribute.namespaceURI
+        ? element.setAttributeNS(attribute.namespaceURI, attribute.name, attribute.value)
+        : element.setAttribute(attribute.name, attribute.value));
+      for (const child of [...element.childNodes]) if (child.nodeType === Node.COMMENT_NODE ||
+        (child.nodeType === Node.TEXT_NODE && !child.textContent?.trim() && !["text", "tspan", "textPath"].includes(element.localName))) child.remove();
+    }
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
+  };
+  queryAll<SVGSVGElement>("svg").forEach((svg) => {
+    try {
+      if (svg.parentElement?.closest("svg") || !svg.querySelector("path, rect, circle, ellipse, line, polyline, polygon, use, image, text")) return;
+      const bounds = svg.getBoundingClientRect();
+      const width = bounds.width || svg.viewBox.baseVal.width || parseFloat(svg.getAttribute("width") || "0");
+      const height = bounds.height || svg.viewBox.baseVal.height || parseFloat(svg.getAttribute("height") || "0");
+      if (!(width > 0 && height > 0)) return;
+      // A hidden sprite bank only defines symbols; its individual uses are captured.
+      if (![...svg.children].some(child => !["defs", "symbol", "style", "title", "desc"].includes(child.localName))) return;
+      const semantic = [svg.getAttribute("aria-label"), svg.getAttribute("role"), svg.id, svg.className.baseVal].filter(Boolean).join(" ");
+      const clone = styledClone(svg);
+      let unresolvedReference = false;
+      let externalReference = false;
+      clone.querySelectorAll<SVGElement>("use").forEach((use) => {
+        const reference = use.getAttribute("href") || use.getAttribute("xlink:href");
+        if (!reference) {
           unresolvedReference = true;
           return;
         }
-        const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        Array.from(symbol.childNodes).forEach((node) => group.appendChild(node.cloneNode(true)));
-        const viewBox = symbol.getAttribute("viewBox");
-        if (viewBox && !clone.hasAttribute("viewBox")) clone.setAttribute("viewBox", viewBox);
-        use.replaceWith(group);
-      } else {
-        try {
-          spriteIcons.set(new URL(reference, pageUrl).href, {
-            label: svg.getAttribute("aria-label") || "SVG sprite icon",
-            width: Math.round(bounds.width), height: Math.round(bounds.height),
-            position: firstPosition(spriteIcons.get(new URL(reference, pageUrl).href)?.position, positionFor(svg)),
-          });
-        } catch { /* Ignore a malformed sprite address without dropping the scan. */ }
-        unresolvedReference = true;
-      }
-    });
-    let externalImage = false;
-    clone.querySelectorAll<SVGImageElement>("image").forEach((image) => {
-      const reference = image.getAttribute("href") || image.getAttribute("xlink:href") || "";
-      if (/^https?:/i.test(reference) || reference.startsWith("/")) {
-        const description = [svg.getAttribute("aria-label"), svg.querySelector("title")?.textContent]
-          .map(cleanDescription).find(usefulDescription);
-        add("image", reference, description || "SVG image layer", { description, position: positionFor(svg) });
-        externalImage = true;
-      } else if (reference && !/^#|^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon);base64,/i.test(reference)) {
-        externalImage = true;
-      }
-    });
-    if (unresolvedReference || externalImage) return;
-    clone.setAttribute("color", getComputedStyle(svg).color);
-    const originalNodes = [svg, ...Array.from(svg.querySelectorAll<SVGElement>("*"))];
-    const copiedNodes = [clone, ...Array.from(clone.querySelectorAll<SVGElement>("*"))];
-    originalNodes.forEach((original, index) => {
-      const copied = copiedNodes[index];
-      if (!copied || copied.localName !== original.localName) return;
-      const style = getComputedStyle(original);
-      for (const name of ["fill", "stroke", "stroke-width", "opacity"]) {
-        if (!copied.hasAttribute(name) && style.getPropertyValue(name)) copied.setAttribute(name, style.getPropertyValue(name));
-      }
-    });
-    clone.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => node.remove());
-    [clone, ...Array.from(clone.querySelectorAll<SVGElement>("*"))].forEach((element) => {
-      Array.from(element.attributes).forEach((attribute) => {
-        const name = attribute.name.toLowerCase();
-        const value = attribute.value.trim();
-        if (name.startsWith("on") || ((name === "href" || name.endsWith(":href")) && value && !value.startsWith("#") &&
-          !(element.localName === "image" && /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon);base64,/i.test(value)))) {
-          element.removeAttribute(attribute.name);
-        } else if (/url\s*\(|javascript:/i.test(value)) {
-          element.removeAttribute(attribute.name);
+        const localId = fragment(reference);
+        if (localId) {
+          const symbol = (svg.getRootNode() as Document | ShadowRoot).getElementById(localId);
+          if (!symbol) {
+            unresolvedReference = true;
+            return;
+          }
+          const viewBox = symbol.getAttribute("viewBox");
+          if (viewBox && !clone.hasAttribute("viewBox")) clone.setAttribute("viewBox", viewBox);
+          use.setAttribute("href", `#${localId}`);
+        } else {
+          try {
+            use.setAttribute("href", new URL(reference, baseUrl).href);
+            use.removeAttribute("xlink:href");
+            externalReference = true;
+          } catch { unresolvedReference = true; }
         }
       });
-    });
-    clone.querySelectorAll("style").forEach((style) => style.remove());
-    const markup = new XMLSerializer().serializeToString(clone);
-    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
-    const label = svg.getAttribute("aria-label") || svg.querySelector("title")?.textContent?.trim() || svg.id || "Inline SVG icon";
-    add("icon", dataUrl, label, {
-      position: positionFor(svg),
-      width: Math.round(bounds.width),
-      height: Math.round(bounds.height),
-      mimeType: "image/svg+xml",
-    });
+      let externalImage = false;
+      clone.querySelectorAll<SVGImageElement>("image").forEach((image) => {
+        const reference = image.getAttribute("href") || image.getAttribute("xlink:href") || "";
+        if (reference && !reference.startsWith("#") && !reference.startsWith("data:")) {
+          const description = [svg.getAttribute("aria-label"), svg.querySelector("title")?.textContent]
+            .map(cleanDescription).find(usefulDescription);
+          add("image", reference, description || "SVG image layer", { description, position: positionFor(svg) });
+          externalImage = true;
+        } else if (reference && !/^#|^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon);base64,/i.test(reference)) {
+          externalImage = true;
+        }
+      });
+      if (unresolvedReference || externalImage) return;
+      embedDefinitions(clone, svg.getRootNode() as Document | ShadowRoot);
+      const label = svg.getAttribute("aria-label") || svg.querySelector("title")?.textContent?.trim() || svg.id || "Inline SVG icon";
+      const kind = (width > 512 || height > 512) && !iconName.test(semantic) ? "image" : "icon";
+      if (externalReference) {
+        spriteIcons.push({ clone, kind, label, width: Math.round(width), height: Math.round(height), position: positionFor(svg) });
+        return;
+      }
+      add(kind, serializeSvg(clone, width, height), label, {
+        position: positionFor(svg),
+        width: Math.round(width),
+        height: Math.round(height),
+        mimeType: "image/svg+xml",
+      });
+    } catch { /* One malformed SVG must not discard other assets on the page. */ }
   });
 
   const supportedSource = (media: HTMLMediaElement) =>
@@ -733,7 +903,7 @@ async function collectPageResources(): Promise<RawPageScan> {
 
   queryAll<HTMLSourceElement>("video source[src], audio source[src]").forEach((source) => {
     const media = source.parentElement as HTMLMediaElement | null;
-    if (!media || supportedSource(media) !== source.src) return;
+    if (!media) return;
     const kind: ResourceKind = media.tagName.toLowerCase() === "video" ? "video" : "audio";
     add(kind, source.src, source.title || source.type || "Media source", {
       position: positionFor(media),
@@ -784,7 +954,8 @@ async function collectPageResources(): Promise<RawPageScan> {
     const isIconLink = iconExtensions.has(extension) || (extension === "svg" && iconName.test([
       url, text, anchor.getAttribute("aria-label"), anchor.title,
     ].filter(Boolean).join(" ")));
-    const kind: ResourceKind = fontExtensions.has(extension)
+    const kind: ResourceKind = /^(?:avif|bmp|gif|jpeg|jpg|png|svg|tiff|webp)$/.test(extension) && !isIconLink
+      ? "image" : fontExtensions.has(extension)
       ? "font"
       : isIconLink
         ? "icon"
@@ -842,20 +1013,26 @@ async function collectPageResources(): Promise<RawPageScan> {
         }
       }
       const iconProperties = [style.maskImage, style.getPropertyValue("-webkit-mask-image")];
-      const imageProperties = [style.backgroundImage, style.content, ...iconProperties];
+      const imageProperties = [style.backgroundImage, style.content, style.borderImageSource, style.listStyleImage, ...iconProperties];
       for (const imageProperty of imageProperties) {
         if (!imageProperty || imageProperty === "none") continue;
         const isMask = iconProperties.includes(imageProperty);
-        for (const match of imageProperty.matchAll(/url\(\s*["']?(.*?)["']?\s*\)/g)) {
-          if (!match[1]) continue;
+        // Quoted URLs can contain parentheses; image-set also accepts strings.
+        const urls = [...imageProperty.matchAll(/url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*?))\s*\)/gi)]
+          .map(match => match[1] ?? match[2] ?? match[3]);
+        if (/image-set\(/i.test(imageProperty)) for (const match of imageProperty.matchAll(/(?:image-set\(|,)\s*["']([^"']+)["']/gi)) urls.push(match[1]);
+        for (const rawUrl of urls) {
+          const url = rawUrl.replace(/\\([\da-f]{1,6})\s?|\\(.)/gi, (_, hex: string, character: string) => hex ? String.fromCodePoint(parseInt(hex, 16) || 0xfffd) : character);
+          if (!url || url.startsWith("#")) continue;
           const identityText = [element.getAttribute("aria-label"), element.getAttribute("title"), element.className, element.id]
             .filter((value) => typeof value === "string").join(" ");
-          const isIcon = isMask || iconName.test(identityText);
+          const smallVector = /^(?:data:image\/svg\+xml)|\.svg(?:[?#]|$)/i.test(url) && parseFloat(style.width) <= 96 && parseFloat(style.height) <= 96;
+          const isIcon = isMask || iconName.test(identityText) || smallVector;
           const description = !isIcon ? [
             element.getAttribute("aria-description"), element.getAttribute("aria-label"),
             element.getAttribute("title"), element.getAttribute("data-description"), element.getAttribute("data-caption"),
           ].map(cleanDescription).find(usefulDescription) : undefined;
-          add(isIcon ? "icon" : "image", match[1], isIcon ? "Background icon" : "Background image", { description, position: positionFor(element) });
+          add(isIcon ? "icon" : "image", url, isIcon ? "Background icon" : "Background image", { description, position: positionFor(element) });
         }
       }
     }
@@ -907,11 +1084,17 @@ async function collectPageResources(): Promise<RawPageScan> {
 
   const stylesheets: CSSStyleSheet[] = [...Array.from(document.styleSheets), ...Array.from(document.adoptedStyleSheets)];
   queryAll<HTMLElement>("*").forEach((element) => {
-    if (element.shadowRoot) stylesheets.push(...element.shadowRoot.styleSheets, ...element.shadowRoot.adoptedStyleSheets);
+    const root = shadowRootFor(element);
+    if (root) stylesheets.push(...root.styleSheets, ...root.adoptedStyleSheets);
   });
-  stylesheets.forEach((stylesheet) => {
-    try {
-      Array.from(stylesheet.cssRules).forEach((rule) => {
+  const visitedStylesheets = new Set<CSSStyleSheet>();
+  const readStylesheet = (stylesheet: CSSStyleSheet) => {
+    if (visitedStylesheets.has(stylesheet)) return;
+    visitedStylesheets.add(stylesheet);
+    const readRules = (rules: CSSRuleList) => {
+      Array.from(rules).forEach((rule) => {
+        if (rule instanceof CSSImportRule) { if (rule.styleSheet) readStylesheet(rule.styleSheet); return; }
+        if ("cssRules" in rule) { readRules((rule as CSSGroupingRule).cssRules); return; }
         if (rule.type !== CSSRule.FONT_FACE_RULE) return;
         const face = rule as CSSFontFaceRule;
         const family = face.style.getPropertyValue("font-family").replace(/["']/g, "").trim();
@@ -921,19 +1104,24 @@ async function collectPageResources(): Promise<RawPageScan> {
           .filter(Boolean)
           .join(" · ") || "Web font";
         for (const match of face.style.getPropertyValue("src").matchAll(/url\((?:["']?)(.*?)(?:["']?)\)/gi)) {
-          if (!match[1] || match[1].startsWith("data:")) continue;
+          if (!match[1]) continue;
           try {
-            const sourceUrl = new URL(match[1], stylesheet.href || pageUrl).href;
-            if (wasLoaded(sourceUrl)) fontFaceMetadata.set(sourceUrl, label);
+            const sourceUrl = new URL(match[1], stylesheet.href || baseUrl).href;
+            if (wasLoaded(sourceUrl) || document.fonts.check(`16px "${family.replaceAll('"', '\\"')}"`)) {
+              fontFaceMetadata.set(sourceUrl, label);
+              add("font", sourceUrl, label, { mimeType: fontMimeTypes[new URL(sourceUrl).pathname.split(".").pop() || ""] });
+            }
           } catch {
             // Ignore invalid CSS source URLs.
           }
         }
       });
-    } catch {
+    };
+    try { readRules(stylesheet.cssRules); } catch {
       // Cross-origin stylesheets do not expose their rules to page scripts.
     }
-  });
+  };
+  stylesheets.forEach(readStylesheet);
 
   performance.getEntriesByType("resource").forEach((entry) => {
     const resource = entry as PerformanceResourceTiming & { responseStatus?: number };
@@ -942,9 +1130,14 @@ async function collectPageResources(): Promise<RawPageScan> {
       const url = new URL(resource.name, pageUrl);
       const extension = url.pathname.split("/").pop()?.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
       const label = fontFaceMetadata.get(url.href);
-      if (!fontExtensions.has(extension) && !label) return;
       const filename = url.pathname.split("/").pop()?.replace(/\.[^.]+$/, "") || "Web font";
-      add("font", url.href, label || filename, { mimeType: fontMimeTypes[extension] });
+      if (fontExtensions.has(extension) || label) add("font", url.href, label || filename, { mimeType: fontMimeTypes[extension] });
+      else if (resource.initiatorType === "img" || ("image,css,link".split(",").includes(resource.initiatorType) && /^(?:avif|bmp|gif|ico|jpeg|jpg|png|svg|webp)$/.test(extension))) {
+        add(extension === "ico" || iconName.test(filename) ? "icon" : "image", url.href, "Image");
+      } else if (["js", "mjs", "cjs", "wasm"].includes(extension)) add("script", url.href, filename);
+      else if (extension === "css") add("stylesheet", url.href, filename, { mimeType: "text/css" });
+      else if (videoExtensions.has(extension)) add("video", url.href, filename);
+      else if (audioExtensions.has(extension)) add("audio", url.href, filename);
     } catch {
       // Ignore invalid resource timing URLs.
     }
@@ -964,48 +1157,78 @@ async function collectPageResources(): Promise<RawPageScan> {
   });
 
   const spriteDocuments = new Map<string, Promise<Document | undefined>>();
-  for (const [reference, icon] of spriteIcons) {
-    const fallback = () => add("icon", reference, icon.label, { width: icon.width, height: icon.height, mimeType: "image/svg+xml", position: icon.position });
+  const captureSprite = async (icon: typeof spriteIcons[number]) => {
+    const externalUses = [...icon.clone.querySelectorAll<SVGElement>("use")].filter(use => !(use.getAttribute("href") || use.getAttribute("xlink:href") || "").startsWith("#"));
+    const fallback = () => externalUses.forEach(use => add("icon", use.getAttribute("href") || use.getAttribute("xlink:href") || undefined, icon.label,
+      { width: icon.width, height: icon.height, mimeType: "image/svg+xml", position: icon.position }));
     try {
-      const spriteUrl = new URL(reference);
-      const symbolId = decodeURIComponent(spriteUrl.hash.slice(1));
-      if (!symbolId) { fallback(); continue; }
-      spriteUrl.hash = "";
-      let request = spriteDocuments.get(spriteUrl.href);
-      if (!request) {
-        const controller = new AbortController();
-        const timer = window.setTimeout(() => controller.abort(), 2_500);
-        request = fetch(spriteUrl.href, { credentials: "omit", signal: controller.signal }).then(async (response) => {
-          if (!response.ok) return undefined;
-          return new DOMParser().parseFromString(await response.text(), "image/svg+xml");
-        }).catch(() => undefined).finally(() => window.clearTimeout(timer));
-        spriteDocuments.set(spriteUrl.href, request);
+      const imported = new Map<string, string>();
+      for (const use of externalUses) {
+        const reference = use.getAttribute("href") || use.getAttribute("xlink:href") || "";
+        const existing = imported.get(reference);
+        if (existing) { use.setAttribute("href", existing); continue; }
+        const spriteUrl = new URL(reference);
+        const symbolId = decodeURIComponent(spriteUrl.hash.slice(1));
+        if (!symbolId) { fallback(); return; }
+        spriteUrl.hash = "";
+        let request = spriteDocuments.get(spriteUrl.href);
+        if (!request) {
+          const controller = new AbortController();
+          const timer = window.setTimeout(() => controller.abort(), 2_500);
+          request = fetch(spriteUrl.href, { credentials: "same-origin", signal: controller.signal }).then(async (response) => {
+            if (!response.ok) return undefined;
+            const parsed = new DOMParser().parseFromString(await response.text(), "image/svg+xml");
+            // Resolve styles before walking dependencies: a class rule can be the
+            // only reference to a gradient or a clip definition elsewhere in the file.
+            for (const style of parsed.querySelectorAll("style")) try {
+              const sheet = new CSSStyleSheet(); sheet.replaceSync(style.textContent || "");
+              for (const rule of [...sheet.cssRules]) if (rule instanceof CSSStyleRule) {
+                for (const target of parsed.querySelectorAll<SVGElement>(rule.selectorText)) for (const name of [...rule.style]) {
+                  if (svgProperties.includes(name) && !target.style?.getPropertyValue(name)) target.setAttribute(name, rule.style.getPropertyValue(name));
+                }
+              }
+            } catch { /* Invalid rules cannot prevent other symbols being captured. */ }
+            for (const target of parsed.querySelectorAll<SVGElement>("[style]")) for (const name of [...target.style]) {
+              if (svgProperties.includes(name)) target.setAttribute(name, target.style.getPropertyValue(name));
+            }
+            return parsed;
+          }).catch(() => undefined).finally(() => window.clearTimeout(timer));
+          spriteDocuments.set(spriteUrl.href, request);
+        }
+        const document = await request;
+        const symbol = document?.getElementById(symbolId);
+        if (!document || !symbol || document.querySelector("parsererror")) { fallback(); return; }
+        const standalone = document.createElementNS(svgNamespace, "svg") as SVGSVGElement;
+        if (!icon.clone.hasAttribute("viewBox")) icon.clone.setAttribute("viewBox", symbol.getAttribute("viewBox") || document.documentElement.getAttribute("viewBox") || `0 0 ${icon.width} ${icon.height}`);
+        const placeholder = document.createElementNS(svgNamespace, "use");
+        placeholder.setAttribute("href", `#${symbolId}`); standalone.append(placeholder);
+        embedDefinitions(standalone, document);
+        // Prefix each imported definition graph, preserving multiple symbols,
+        // currentColor, per-use transforms and differently colored instances.
+        const names = new Map([...standalone.querySelectorAll("[id]")].map((element, index) => [element.id, `remote-${imported.size}-${index}`]));
+        for (const element of standalone.querySelectorAll("*")) for (const attribute of [...element.attributes]) {
+          const value = attribute.value.replace(/url\(\s*["']?#([^"')]+)["']?\s*\)/gi, (_, id: string) => `url(#${names.get(id) ?? id})`);
+          if (attribute.name === "id") element.setAttribute("id", names.get(attribute.value)!);
+          else if (attribute.name === "href" || attribute.name.endsWith(":href")) element.setAttribute(attribute.name, attribute.value.startsWith("#") ? `#${names.get(attribute.value.slice(1)) ?? attribute.value.slice(1)}` : attribute.value);
+          else element.setAttribute(attribute.name, value);
+        }
+        const localReference = `#${names.get(symbolId)}`;
+        imported.set(reference, localReference);
+        use.setAttribute("href", localReference); use.removeAttribute("xlink:href");
+        placeholder.remove();
+        for (const defs of [...standalone.children]) icon.clone.prepend(defs);
       }
-      const document = await request;
-      const symbol = [...(document?.querySelectorAll("symbol[id]") ?? [])].find((node) => node.id === symbolId);
-      if (!document || !symbol || document.querySelector("parsererror")) { fallback(); continue; }
-      const standalone = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      standalone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      standalone.setAttribute("viewBox", symbol.getAttribute("viewBox") || document.documentElement.getAttribute("viewBox") || `0 0 ${icon.width} ${icon.height}`);
-      standalone.setAttribute("width", String(icon.width));
-      standalone.setAttribute("height", String(icon.height));
-      document.documentElement.querySelectorAll(":scope > defs").forEach((defs) => standalone.appendChild(defs.cloneNode(true)));
-      symbol.childNodes.forEach((node) => standalone.appendChild(node.cloneNode(true)));
-      standalone.querySelectorAll("script, foreignObject, iframe, object, embed, style").forEach((node) => node.remove());
-      [standalone, ...standalone.querySelectorAll("*")].forEach((element) => {
-        [...element.attributes].forEach((attribute) => {
-          const name = attribute.name.toLowerCase();
-          const value = attribute.value.trim();
-          if (name.startsWith("on") || /javascript:|url\s*\(/i.test(value) ||
-            ((name === "href" || name.endsWith(":href")) && value && !value.startsWith("#"))) element.removeAttribute(attribute.name);
-        });
-      });
-      add("icon", `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(standalone))}`, icon.label, {
+      add(icon.kind, serializeSvg(icon.clone, icon.width, icon.height), icon.label, {
         position: icon.position,
         width: icon.width, height: icon.height, mimeType: "image/svg+xml",
       });
     } catch { fallback(); }
-  }
+  };
+  const sprites = spriteIcons;
+  let spriteIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(6, sprites.length) }, async () => {
+    while (spriteIndex < sprites.length) await captureSprite(sprites[spriteIndex++]);
+  }));
 
   // blob: addresses expire with the page. Persist their bytes as data URLs so
   // the library keeps actual images instead of dead references after a reload.

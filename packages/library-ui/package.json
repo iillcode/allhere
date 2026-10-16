@@ -1,5 +1,5 @@
 {
-  "name": "@allhere/library-ui",
+  "name": "@stashwell/library-ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "@allhere/core": "workspace:*",
+    "@stashwell/core": "workspace:*",
     "@fontsource/roboto": "^5.2.0",
     "fflate": "^0.8.3",
     "lucide-react": "^0.468.0"

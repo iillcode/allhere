@@ -1,6 +1,6 @@
 "use client";
 
-import { sampleCaptures, type LibraryAdapter } from "@allhere/library-ui";
+import { sampleCaptures, type LibraryAdapter } from "@stashwell/library-ui";
 
 type PageCaptures = Awaited<ReturnType<LibraryAdapter["load"]>>;
 

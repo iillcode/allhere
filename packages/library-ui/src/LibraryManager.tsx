@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowLeft, Bookmark, ChevronRight, Files, Search, Trash2, Undo2, X } from "lucide-react";
-import { labelForResource, type CapturedResource, type PageCapture } from "@allhere/core";
+import { labelForResource, type CapturedResource, type PageCapture } from "@stashwell/core";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TabFavicon } from "./TabFavicon";
 

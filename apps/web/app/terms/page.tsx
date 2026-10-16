@@ -2,32 +2,32 @@ import type { Metadata } from "next";
 import LegalPage from "../LegalPage";
 
 export const metadata: Metadata = {
-  title: "Terms — Allhere",
-  description: "Terms for using the Allhere developer preview.",
+  title: "Terms — Stashwell",
+  description: "Terms for using the Stashwell developer preview.",
 };
 
 export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of use"
-      description="These terms describe the current Allhere browser extension preview."
+      description="These terms describe the current Stashwell browser extension preview."
       sections={[
         {
           title: "Developer preview",
           paragraphs: [
-            "Allhere is a product preview. Features, supported resources, and availability may change as the product is developed.",
+            "Stashwell is a product preview. Features, supported resources, and availability may change as the product is developed.",
           ],
         },
         {
-          title: "Using Allhere",
+          title: "Using Stashwell",
           paragraphs: [
-            "Click Allhere's toolbar icon on a webpage to give temporary access to that tab, then choose Scan page to start a scan. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Chrome may ask you to allow access to a resource's original host before a file action. Use Allhere only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
+            "Click Stashwell's toolbar icon on a webpage to give temporary access to that tab, then choose Scan page to start a scan. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Chrome may ask you to allow access to a resource's original host before a file action. Use Stashwell only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
           ],
         },
         {
           title: "Link signals",
           paragraphs: [
-            "Link signals describe URL patterns and connection details that Allhere can inspect locally. They are informational and do not guarantee that a destination, page, or file is safe.",
+            "Link signals describe URL patterns and connection details that Stashwell can inspect locally. They are informational and do not guarantee that a destination, page, or file is safe.",
           ],
         },
         {

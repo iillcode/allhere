@@ -1,6 +1,6 @@
 "use client";
 
-import { LibraryApp, createWebAdapter } from "@allhere/library-ui";
+import { LibraryApp, createWebAdapter } from "@stashwell/library-ui";
 
 const adapter = createWebAdapter();
 

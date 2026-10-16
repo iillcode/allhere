@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { LibraryApp } from "@allhere/library-ui";
+import { LibraryApp } from "@stashwell/library-ui";
 import { createDemoAdapter } from "../demoAdapter";
 
 const adapter = createDemoAdapter();

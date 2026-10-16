@@ -16,12 +16,12 @@ export default function LegalPage({
     <div className="landing">
       <header className="landing-header">
         <div className="landing-container landing-header__inner">
-          <a className="landing-brand" href="/" aria-label="Allhere home">
-            <img src="/icons/allhere.svg" width="34" height="34" alt="" />
-            <span>allhere</span>
+          <a className="landing-brand" href="/" aria-label="Stashwell home">
+            <img src="/icons/stashwell.svg" width="34" height="34" alt="" />
+            <span>Stashwell</span>
           </a>
           <a className="landing-legal__back" href="/">
-            Back to Allhere
+            Back to Stashwell
             <svg
               aria-hidden="true"
               viewBox="0 0 20 20"
@@ -37,7 +37,7 @@ export default function LegalPage({
         </div>
       </header>
       <main className="landing-container landing-legal">
-        <span className="landing-legal__eyebrow">ALLHERE · DEVELOPER PREVIEW</span>
+        <span className="landing-legal__eyebrow">STASHWELL · DEVELOPER PREVIEW</span>
         <h1>{title}</h1>
         <p className="landing-legal__lead">{description}</p>
         {sections.map(({ title: sectionTitle, paragraphs }) => (

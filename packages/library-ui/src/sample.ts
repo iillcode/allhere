@@ -4,7 +4,7 @@ import {
   type CapturedResource,
   type PageCapture,
   type ResourceKind,
-} from "@allhere/core";
+} from "@stashwell/core";
 
 type SampleEntry = {
   kind: ResourceKind;

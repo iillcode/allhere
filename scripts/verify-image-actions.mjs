@@ -91,11 +91,11 @@ const debugPort = await new Promise((done) => {
   const server = portServer();
   server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => done(port)); });
 });
-const profile = await mkdtemp(join(tmpdir(), "allhere-image-actions-"));
+const profile = await mkdtemp(join(tmpdir(), "stashwell-image-actions-"));
 const downloads = join(profile, "test-downloads");
 await mkdir(downloads);
 const extension = await localFixtureExtension(profile);
-const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
+const browser = spawn(process.env.STASHWELL_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run",
   "--no-default-browser-check", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "about:blank",
 ], { windowsHide: true, stdio: "ignore" });
@@ -110,7 +110,7 @@ try {
   const worker = await until(async () => {
     const { targetInfos } = await browserCdp.send("Target.getTargets");
     return targetInfos.find((target) => /^chrome-extension:/.test(target.url) && target.url.endsWith("service-worker.js"));
-  }, "The built Allhere extension did not load");
+  }, "The built Stashwell extension did not load");
   // Node's URL origin is null for extension URLs, so preserve the scheme and host.
   const extensionUrl = `chrome-extension://${new URL(worker.url).hostname}/index.html`;
   const { targetId } = await browserCdp.send("Target.createTarget", { url: extensionUrl });
@@ -120,16 +120,17 @@ try {
   }, "The extension page did not open");
   page = new Cdp(target.webSocketDebuggerUrl);
   await page.ready();
+  await until(() => page.evaluate("Boolean(globalThis.chrome?.tabs?.connect)"), "The extension API did not initialize");
   if (scanOnly) {
     // The fixture is an extension tab; model a continuously visible side panel.
     // Isolate manual capture and navigation races from watcher notifications.
     // verify-auto-updates.mjs exercises real ports and continuous collection.
-    await page.evaluate("(()=>{const connect=chrome.tabs.connect.bind(chrome.tabs);chrome.tabs.connect=(tabId,options)=>options?.name==='allhere.auto-updates'?{disconnect(){},onMessage:{addListener(){}},onDisconnect:{addListener(){}}}:connect(tabId,options);})()");
+    await page.evaluate("(()=>{const connect=chrome.tabs.connect.bind(chrome.tabs);chrome.tabs.connect=(tabId,options)=>options?.name==='stashwell.auto-updates'?{disconnect(){},onMessage:{addListener(){}},onDisconnect:{addListener(){}}}:connect(tabId,options);})()");
     await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
   }
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 1, mobile: false });
   await browserCdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloads, eventsEnabled: true });
-  await until(() => page.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "The library did not render");
+  await until(() => page.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "The library did not render");
   const samples = await page.evaluate(`(() => {
     const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 16;
     const context = canvas.getContext('2d'); context.fillStyle = '#0b57d0'; context.fillRect(0, 0, 16, 16);
@@ -174,7 +175,7 @@ try {
       {label:'Video file',path:'/video.webm',bytes:Buffer.from(video,'base64'),type:'video/webm',kind:'video',extension:'webm'},
       {label:'Audio file',path:'/audio.wav',bytes:wav,type:'audio/wav',kind:'audio',extension:'wav'},
       {label:'Stylesheet file',path:'/style.css',bytes:Buffer.from('body { color: blue; }'),type:'text/css',kind:'stylesheet',extension:'css'},
-      {label:'Script file',path:'/script.js',bytes:Buffer.from('console.log("Allhere");'),type:'application/javascript',kind:'script',extension:'js'},
+      {label:'Script file',path:'/script.js',bytes:Buffer.from('console.log("Stashwell");'),type:'application/javascript',kind:'script',extension:'js'},
       {label:'Chunked binary',path:'/binary.bin',bytes:Buffer.alloc(2*1024*1024+17,42),type:'application/octet-stream',kind:'other',extension:'bin'},
       {label:'URL resource',url:base+'/destination',kind:'link'}
     );
@@ -193,7 +194,7 @@ try {
     const symbolFont = (await readdir(join(extension, 'assets'))).find(name => /roboto-latin-400.*\.woff2$/.test(name));
     fixtures.set('/symbol-font.woff2', { type: 'font/woff2', bytes: await readFile(join(extension, 'assets', symbolFont)) });
     fixtures.set('/scan-page',{type:'text/html',bytes:Buffer.from(`<!doctype html><title>Live gallery</title>
-      <link rel="icon" href="/favicon.ico"><style>.mask-icon{width:24px;height:24px;mask-image:url('/mask.svg');background:blue}.wall{width:30px;height:30px;background-image:url('/wall.png')} .pseudo::before{content:'';display:block;width:24px;height:24px;background-image:url('/pseudo.png')}</style>
+      <base href="/assets/"><link rel="icon" href="/favicon.ico"><style>.mask-icon{width:24px;height:24px;mask-image:url('/mask.svg');background:blue}.wall{width:30px;height:30px;background-image:url('/wall.png')} .pseudo::before{content:'';display:block;width:24px;height:24px;background-image:url('/pseudo.png')}</style>
       <style>@font-face{font-family:'Fixture Symbols';src:url('/symbol-font.woff2')} .font-glyph{display:inline-block;width:24px;height:24px;font:24px 'Fixture Symbols';color:white}.font-glyph::before{content:attr(data-glyph)}.missing-glyph{font-family:'Missing Icons'}.hidden-glyph{visibility:hidden}</style>
       <mat-icon class="font-glyph" data-mat-icon-type="font" data-glyph="A" aria-label="Pseudo font glyph"></mat-icon>
       <mat-icon class="font-glyph" data-mat-icon-type="font" data-glyph="A" aria-label="Duplicate font glyph"></mat-icon>
@@ -205,18 +206,49 @@ try {
       <img src="data:image/png;base64,${png.toString('base64')}" alt="Inline raster image">
       <img src="/same.png?w=100" alt="Variant"><img src="/same.png?w=200" alt="Variant">
       <img src="/same.png?sig=a&w=100" alt="Signed A"><img src="/same.png?sig=b&w=100" alt="Signed B">
+      <img data-src="deferred.png" alt="Data-only image"><img src="/missing.png" data-original="/original.png" alt="Broken placeholder">
+      <img src="data:image/png;base64,${png.toString('base64')}" data-src="/lazy-one.png" alt="Distinct lazy one"><img src="data:image/png;base64,${png.toString('base64')}" data-src="/lazy-two.png" alt="Distinct lazy two">
+      <img src="/responsive-original.png" srcset="/responsive-small.png 1x, /responsive-large.png 2x" alt="Responsive image">
+      <img src="/images/M/title._V1_QL75_UY209_CR0,0,140,209_.jpg" srcset="/images/M/title._V1_QL75_UY209_CR0,0,140,209_.jpg 140w, /images/M/title._V1_QL75_UY418_CR0,0,280,418_.jpg 280w, /images/M/title._V1_QL75_UY627_CR0,0,420,627_.jpg 420w" sizes="140px" alt="IMDb poster">
+      <picture><source media="(min-width:9999px)" srcset="/alternate.png 1x"><img src="/picture.png" data-srcset="/deferred-small.png 1x, /deferred-large.png 2x" alt="Picture image"></picture>
+      <img src="/fragment.svg#red" alt="Red SVG view"><img src="/fragment.svg#blue" alt="Blue SVG view">
+      <a href="/first.png" download>Same image as a download link</a>
+      <div style="width:30px;height:30px;background-image:url('/background(1).png')"></div>
+      <div style="width:30px;height:30px;background-image:image-set('/set-one.png' 1x, '/set-two.png' 2x)"></div>
+      <div style="border:4px solid;border-image-source:url('/border.png')"></div>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-label="Gradient icon" class="first-copy"><title>First title</title><defs><linearGradient id="gradient-one"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><path fill="url(#gradient-one)" d="M0 0h24v24H0z"/></svg>
+      <svg class="second-copy" aria-label="Duplicate gradient icon" viewBox="0 0 24 24" height="48" width="48"><title>Second title</title><defs><linearGradient id="gradient-two"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs><path d="M0 0h24v24H0z" fill="url(#gradient-two)"/></svg>
+      <svg style="display:none"><defs><g id="shared-shape"><path d="M0 0h6v6H0z" fill="red"/></g><clipPath id="shared-clip"><rect width="12" height="24"/></clipPath></defs></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-label="Local group icon"><use href="#shared-shape" x="10" y="10"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-label="Clipped icon"><rect width="24" height="24" fill="green" clip-path="url(#shared-clip)"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-label="Hidden menu icon" style="display:none"><path fill="purple" d="M2 2h13v13H2z"/></svg>
+      <svg width="640" height="540" viewBox="0 0 64 54" aria-label="Large illustration"><rect width="64" height="54" fill="orange"/></svg>
+      <svg width="24" height="24" aria-label="Nested icon"><svg width="24" height="24"><path d="M4 4h12v12H4z" fill="teal"/></svg></svg>
+      <style>.styled-vector path{fill:none;stroke:rgb(255,0,0);stroke-width:3px;stroke-linecap:round;stroke-linejoin:round}</style>
+      <svg class="styled-vector" width="24" height="24" viewBox="0 0 24 24" aria-label="CSS styled icon"><path fill="blue" stroke="green" d="M4 12h16"/></svg>
+      <svg width="24" height="24" aria-label="External gradient icon" style="color:rgb(255,0,0)"><use href="/sprites.svg#gradient"/></svg>
+      <svg width="24" height="24" aria-label="External green icon" style="color:rgb(0,255,0)"><use href="/sprites.svg#gradient"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-label="Combined sprite icon"><use href="/sprites.svg#one" fill="red"/><use href="/sprites.svg#two" x="12" y="12" fill="blue"/></svg>
+      <video><source src="/video.webm" type="video/webm"><source src="/alternative.mp4" type="video/mp4"></video>
       <div class="wall"></div><div class="mask-icon" aria-label="Mask icon"></div><div class="pseudo"></div>
       <svg width="24" height="24" aria-label="Sprite one"><use href="/sprites.svg#one"></use></svg><svg width="24" height="24" aria-label="Sprite two"><use href="/sprites.svg#two"></use></svg>
       <svg aria-label="Large inline icon" width="24" height="24" viewBox="0 0 24 24">${lengthySvg}</svg>
-      <div id="shadow-host"></div><iframe title="Asset frame" src="/scan-frame"></iframe>
+      <div id="shadow-host"></div><div id="closed-host"></div><iframe title="Asset frame" src="/scan-frame"></iframe><iframe title="Ungrantable frame" src="${base.replace('127.0.0.1','localhost')}/foreign-frame"></iframe>
       <script>const root=document.querySelector('#shadow-host').attachShadow({mode:'open'});root.innerHTML='<img src="/shadow.png" alt="Shadow image"><svg aria-label="Shadow icon" width="24" height="24"><circle cx="12" cy="12" r="9"/></svg>';
+      document.querySelector('#closed-host').attachShadow({mode:'closed'}).innerHTML='<img src="/closed.png" alt="Closed shadow image"><svg aria-label="Closed shadow icon" width="24" height="24"><path d="M1 1h7v19H1z" fill="orange"/></svg>';
+      new Image().src='/detached.png';import('/dynamic-module.mjs');
       fetch('/negotiated.jpg').then(response=>response.blob()).then(blob=>{const photo=new Image();photo.alt='Blob image';photo.src=URL.createObjectURL(blob);document.body.append(photo)});</script>`)});
     fixtures.set('/frame-favicon.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#188038"/></svg>')});
     fixtures.set('/cdn-favicon.png',{type:'image/png',bytes:png,cors:false,headers:{'Cross-Origin-Resource-Policy':'cross-origin'}});
     fixtures.set('/scan-frame',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Asset frame</title><link rel="icon" href="/frame-favicon.svg"><img src="/frame.png" alt="Frame image"><svg aria-label="Frame icon" width="24" height="24"><rect width="20" height="20"/></svg>')});
-    for(const path of ['/first.png','/lazy.png','/same.png','/wall.png','/pseudo.png','/shadow.png','/frame.png','/late.png','/late2.png'])fixtures.set(path,{type:'image/png',bytes:png});
+    fixtures.set('/foreign-frame',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Unpermitted frame</title><img src="/closed.png" alt="Foreign private image">')});
+    for(const path of ['/first.png','/lazy.png','/same.png','/wall.png','/pseudo.png','/shadow.png','/frame.png','/late.png','/late2.png',
+      '/lazy-one.png','/lazy-two.png','/detached.png','/closed.png','/assets/deferred.png','/original.png','/responsive-original.png','/responsive-small.png','/responsive-large.png','/alternate.png','/picture.png','/deferred-small.png','/deferred-large.png','/background(1).png','/set-one.png','/set-two.png','/border.png'])fixtures.set(path,{type:'image/png',bytes:png});
+    fixtures.set('/dynamic-module.mjs',{type:'text/javascript',bytes:Buffer.from('export const loaded = true;')});
+    for(const path of ['/images/M/title._V1_QL75_UY209_CR0,0,140,209_.jpg','/images/M/title._V1_QL75_UY418_CR0,0,280,418_.jpg','/images/M/title._V1_QL75_UY627_CR0,0,420,627_.jpg'])fixtures.set(path,{type:'image/png',bytes:png});
+    fixtures.set('/fragment.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="48" height="24"><view id="red" viewBox="0 0 24 24"/><view id="blue" viewBox="24 0 24 24"/><rect width="24" height="24" fill="red"/><rect x="24" width="24" height="24" fill="blue"/></svg>')});
     fixtures.set('/mask.svg',{type:'image/svg+xml',bytes:Buffer.from(inlineSvg)});
-    fixtures.set('/sprites.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><symbol id="one"><path d="M0 0h12v12H0z"/></symbol><symbol id="two"><circle r="6" cx="6" cy="6"/></symbol></svg>')});
+    fixtures.set('/sprites.svg',{type:'image/svg+xml',bytes:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="external-gradient"><stop stop-color="currentColor"/><stop offset="1" stop-color="blue"/></linearGradient></defs><symbol id="gradient" viewBox="0 0 24 24"><rect width="24" height="24" fill="url(#external-gradient)"/></symbol><symbol id="one"><path d="M0 0h12v12H0z"/></symbol><symbol id="two"><circle r="6" cx="6" cy="6"/></symbol></svg>')});
   }
   const capturedAt = new Date().toISOString();
   const capture = { id: "image-actions-probe", pageUrl: `${base}/source`, pageTitle: "Image actions check", hostname: "127.0.0.1", capturedAt,
@@ -241,7 +273,7 @@ try {
     fixtures.set('/download',{type:'application/octet-stream',bytes:arbitrary,headers:{'Content-Disposition':"attachment; filename*=UTF-8''scene%20one.blend"}});
     fixtures.set('/sound.flac',{type:'audio/flac',bytes:Buffer.concat([Buffer.from('fLaC'),arbitrary])});
     fixtures.set('/direct-video.mp4',{type:'video/mp4',bytes:Buffer.from([0,0,0,16,102,116,121,112,105,115,111,109,0,0,0,0])});
-    fixtures.set('/media-links',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Media links fixture</title><a href="https://www.youtube.com/watch?v=allhere0001">YouTube watch link</a><a href="https://www.youtube.com/shorts/allhere0002">YouTube Shorts link</a><a href="/direct-video.mp4">Direct MP4</a>')});
+    fixtures.set('/media-links',{type:'text/html',bytes:Buffer.from('<!doctype html><title>Media links fixture</title><a href="https://www.youtube.com/watch?v=stashwell0001">YouTube watch link</a><a href="https://www.youtube.com/shorts/stashwell0002">YouTube Shorts link</a><a href="/direct-video.mp4">Direct MP4</a>')});
     capture.resources.push({...capture.resources[0],id:'download-audio',kind:'audio',label:'Downloadable audio',url:base+'/long.wav'});
     capture.resources.push({...capture.resources[0],id:'download-flac',kind:'audio',label:'FLAC audio',url:base+'/sound.flac'});
     capture.resources.push({...capture.resources[0],id:'download-arbitrary',kind:'other',label:'Scene.blend',url:base+'/scene.blend'});
@@ -258,7 +290,7 @@ try {
     const number=(id,n)=>ebml(id,Buffer.from([n]));
     const header=ebml('1a45dfa3',Buffer.concat([number('4286',1),number('42f7',1),number('42f2',4),number('42f3',8),ebml('4282',Buffer.from('webm')),number('4287',2),number('4285',2)]));
     const duration=Buffer.alloc(8);duration.writeDoubleBE(1200);
-    const info=ebml('1549a966',Buffer.concat([ebml('2ad7b1',Buffer.from([15,66,64])),ebml('4489',duration),ebml('4d80',Buffer.from('Allhere')),ebml('5741',Buffer.from('Allhere'))]));
+    const info=ebml('1549a966',Buffer.concat([ebml('2ad7b1',Buffer.from([15,66,64])),ebml('4489',duration),ebml('4d80',Buffer.from('Stashwell')),ebml('5741',Buffer.from('Stashwell'))]));
     const tracks=ebml('1654ae6b',ebml('ae',Buffer.concat([number('d7',1),number('73c5',1),number('83',1),ebml('86',Buffer.from('V_VP8')),ebml('e0',Buffer.concat([number('b0',64),number('ba',64)]))])));
     const cluster=ebml('1f43b675',Buffer.concat([number('e7',0),...encodedFrames.map(frame=>ebml('a3',Buffer.concat([Buffer.from([0x81,frame.time>>8,frame.time&255,frame.key?0x80:0]),Buffer.from(frame.bytes)])))]));
     fixtures.set('/preview.webm', { type:'video/webm', bytes:Buffer.concat([header,ebml('18538067',Buffer.concat([info,tracks,cluster]))]) });
@@ -451,12 +483,12 @@ try {
     await page.evaluate("document.querySelector('.resource-modal .details-open').click()",true);
     const previewDownload=await until(async()=> (await jobs()).find(job=>!previousPreviewIds.has(job.id)&&job.state==='complete'),'Preview format download did not complete');
     assert.deepEqual([...(await readFile(join(downloads,previewDownload.filename))).subarray(0,3)],[255,216,255]);
-    if(process.env.ALLHERE_WEB_URL){
-      const {targetId:webId}=await browserCdp.send('Target.createTarget',{url:process.env.ALLHERE_WEB_URL});
+    if(process.env.STASHWELL_WEB_URL){
+      const {targetId:webId}=await browserCdp.send('Target.createTarget',{url:process.env.STASHWELL_WEB_URL});
       const webInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===webId&&target.webSocketDebuggerUrl),'Web format library did not open');
       const web=new Cdp(webInfo.webSocketDebuggerUrl);await web.ready();
       try{
-        await until(()=>web.evaluate("Boolean(document.querySelector('.allhere-shell--web'))"),'Web library did not render');
+        await until(()=>web.evaluate("Boolean(document.querySelector('.stashwell-shell--web'))"),'Web library did not render');
         await web.evaluate(`localStorage.setItem('allhere.library.v1',${JSON.stringify(JSON.stringify([capture]))})`);
         await web.send('Page.reload');await until(()=>web.evaluate("Boolean(document.querySelector('.resource-album'))"),'Web fixture did not load');
         const category=async name=>web.evaluate(`[...document.querySelectorAll('.category-pill')].find(button=>button.textContent.startsWith(${JSON.stringify(name)})).click()`,true);
@@ -533,7 +565,7 @@ try {
   } else if (downloadOnly) {
     await mkdir(resolve('.impeccable/review'),{recursive:true});
     const jobs=()=>page.evaluate("chrome.storage.local.get('allhere.downloads.v1').then(data=>data['allhere.downloads.v1']||[])");
-    const submit=async(url)=>page.evaluate(`chrome.runtime.sendMessage({type:'allhere.download.start',input:{url:${JSON.stringify(url)},title:${JSON.stringify(new URL(url).pathname.slice(1))},filename:${JSON.stringify(new URL(url).pathname.slice(1))},kind:'audio'}})`);
+    const submit=async(url)=>page.evaluate(`chrome.runtime.sendMessage({type:'stashwell.download.start',input:{url:${JSON.stringify(url)},title:${JSON.stringify(new URL(url).pathname.slice(1))},filename:${JSON.stringify(new URL(url).pathname.slice(1))},kind:'audio'}})`);
     await selectCategory('Video & audio');
     await page.evaluate("document.querySelector('.resource-actions__trigger').click()",true);
     await page.evaluate("[...document.querySelectorAll('.resource-actions__item')].find(button=>button.textContent.trim()==='Download').click()",true);
@@ -552,7 +584,7 @@ try {
     await selectCategory('Video & audio');
     await submit(base+'/long.wav');
     const next=await until(async()=>{const list=await jobs();return list.find(job=>job.id!==first.id&&job.state==='downloading');},'Second download did not start');
-    await page.evaluate(`chrome.runtime.sendMessage({type:'allhere.download.cancel',id:${JSON.stringify(next.id)}})`);
+    await page.evaluate(`chrome.runtime.sendMessage({type:'stashwell.download.cancel',id:${JSON.stringify(next.id)}})`);
     await until(async()=> (await jobs()).find(job=>job.id===next.id)?.state==='cancelled','Cancellation did not persist');
     await submit(base+'/no-media.mp4');
     await until(async()=> (await jobs()).find(job=>job.state==='failed'&&job.url.endsWith('/no-media.mp4')),'HTML response was saved as media');
@@ -575,7 +607,7 @@ try {
     await page.evaluate("document.querySelector('.bulk-selection__menu-trigger').click()",true);
     await page.evaluate("[...document.querySelectorAll('.bulk-selection__menu-panel button')].find(button=>button.textContent.includes('Download as ZIP')).click()",true);
     const zip=await until(async()=> (await jobs()).find(job=>job.filename.endsWith('.zip')&&job.state==='complete'),'Bulk ZIP did not download');
-    assert.ok(zip.filename.startsWith('allhere-'),'The ZIP lost its generated filename');
+    assert.ok(zip.filename.startsWith('stashwell-'),'The ZIP lost its generated filename');
     const contents=unzipSync(await readFile(join(downloads,zip.filename)));
     assert.deepEqual(Buffer.from(contents['Scene.blend']),fixtures.get('/scene.blend').bytes);
     assert.deepEqual(Buffer.from(contents['scene one.blend']),fixtures.get('/download').bytes);
@@ -593,7 +625,7 @@ try {
     const workerInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.type==='service_worker'),'Permission test worker is missing');
     const permissionWorker=new Cdp(workerInfo.webSocketDebuggerUrl);await permissionWorker.ready();
     const permissionOrigin='http://127.0.0.1/*';
-    await permissionWorker.evaluate(`(()=>{globalThis.__allhereContains=chrome.permissions.contains.bind(chrome.permissions);globalThis.__allhereMissing=true;chrome.permissions.contains=p=>globalThis.__allhereMissing&&p.origins?.includes('${permissionOrigin}')?Promise.resolve(false):globalThis.__allhereContains(p);})()`);
+    await permissionWorker.evaluate(`(()=>{globalThis.__stashwellContains=chrome.permissions.contains.bind(chrome.permissions);globalThis.__stashwellMissing=true;chrome.permissions.contains=p=>globalThis.__stashwellMissing&&p.origins?.includes('${permissionOrigin}')?Promise.resolve(false):globalThis.__stashwellContains(p);})()`);
     const blocked=await submit(base+'/long.wav');assert.ok(blocked.ok);
     assert.equal(blocked.result.state,'failed');assert.deepEqual(blocked.result.permissionOrigins,[permissionOrigin]);
     await until(()=>page.evaluate("Boolean(document.querySelector('.download-tray__access'))"),'Missing site access has no grant button');
@@ -603,14 +635,14 @@ try {
     assert.deepEqual(await page.evaluate("window.__requested"),{origins:[permissionOrigin],gesture:true});
     assert.ok(await page.evaluate("(()=>{const b=document.querySelector('.download-tray__access'),r=b.getBoundingClientRect();return r.width>100&&r.height>=32&&r.height<60&&r.right<=innerWidth;})()"),'Permission button is not readable within the sidebar');
     const permissionShot=await page.send('Page.captureScreenshot',{format:'png'});await writeFile(resolve('.impeccable/review/download-permission-390.png'),Buffer.from(permissionShot.data,'base64'));
-    await permissionWorker.evaluate("globalThis.__allhereMissing=false");
+    await permissionWorker.evaluate("globalThis.__stashwellMissing=false");
     await page.evaluate("chrome.permissions.request=p=>{window.__requested={...p,gesture:navigator.userActivation.isActive};return window.__requestAccess(p);}");
     await page.evaluate("document.querySelector('.download-tray__access').click()",true);
     const retried=await until(async()=>{const list=await jobs();return list.find(job=>job.id!==first.id&&job.id!==blocked.result.id&&job.url===base+'/long.wav'&&job.state==='complete');},'Granting access did not retry the download',20000);
     assert.deepEqual(await page.evaluate("window.__requested"),{origins:[permissionOrigin],gesture:true},'Native retry must request only the file host with a user gesture');
     assert.deepEqual(await readFile(join(downloads,retried.filename)),fixtures.get('/long.wav').bytes);
     await page.evaluate("chrome.permissions.request=window.__requestAccess;delete window.__requestAccess;delete window.__denyAccess;delete window.__requested");
-    await permissionWorker.evaluate("chrome.permissions.contains=globalThis.__allhereContains;delete globalThis.__allhereContains;delete globalThis.__allhereMissing");permissionWorker.close();
+    await permissionWorker.evaluate("chrome.permissions.contains=globalThis.__stashwellContains;delete globalThis.__stashwellContains;delete globalThis.__stashwellMissing");permissionWorker.close();
     console.log('PASS native website access request and simulated missing-host/deny/grant/retry states, with exact downloaded bytes.');
     const {targetId:linksTarget}=await browserCdp.send('Target.createTarget',{url:base+'/media-links'});
     const linksInfo=await until(async()=> (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(target=>target.id===linksTarget),'Media links tab did not open');
@@ -621,8 +653,8 @@ try {
     const scanned=await until(()=>page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']?.find(capture=>capture.pageUrl===${JSON.stringify(base+'/media-links')}))`),'Media links page was not scanned');
     const videos=scanned.resources.filter(resource=>resource.kind==='video');
     assert.deepEqual(videos.map(resource=>resource.url),[base+'/direct-video.mp4'],'Only the direct video file should be captured as video');
-    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/watch?v=allhere0001'),'YouTube watch URL should remain an ordinary link');
-    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/shorts/allhere0002'),'YouTube Shorts URL should remain an ordinary link');
+    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/watch?v=stashwell0001'),'YouTube watch URL should remain an ordinary link');
+    assert.ok(scanned.resources.some(resource=>resource.kind==='link'&&resource.url==='https://www.youtube.com/shorts/stashwell0002'),'YouTube Shorts URL should remain an ordinary link');
     await page.send('Page.bringToFront');await selectSource('Media links fixture');await selectCategory('Video & audio');
     await until(()=>page.evaluate("document.querySelectorAll('.resource-card').length===1"),'Direct video file did not appear in the media library');
     await selectCategory('Links');
@@ -735,7 +767,7 @@ try {
       await expectFavicon('/favicon.ico');
       await recordScanState('needed');
       assert.equal(await read(),undefined,'Opening a webpage must wait for Scan page');
-      assert.equal(await live.evaluate('Boolean(globalThis.__allhereFileDropInstalled)'),false,'Unscanned pages must not receive a page helper');
+      assert.equal(await live.evaluate('Boolean(globalThis.__stashwellFileDropInstalled)'),false,'Unscanned pages must not receive a page helper');
       const manifest=await page.evaluate('chrome.runtime.getManifest()');
       assert.ok(manifest.permissions.includes('activeTab')&&!manifest.permissions.includes('tabs'),'Scans must use activeTab without broad tab metadata access');
       const productionManifest=JSON.parse(await readFile(resolve('apps/extension/out/manifest.json'),'utf8'));
@@ -746,8 +778,11 @@ try {
       assert.equal(await read(),undefined,'Missing tab access must not save a capture');
       assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Scanning must not request persistent site access');
       await page.evaluate('window.__hideScanUrl=false;chrome.tabs.query=window.__tabsQuery');
+      const legacyResponsive = {...capture,id:'legacy-responsive',pageUrl:base+'/scan-page',pageTitle:'Live gallery',resources:
+        ['/responsive-original.png','/responsive-small.png','/responsive-large.png'].map((path,index)=>({...capture.resources[0],id:`legacy-responsive-${index}`,pageUrl:base+'/scan-page',pageTitle:'Live gallery',url:base+path,label:'Responsive image',alt:'Responsive image',saved:index===1||undefined,width:10,height:10}))};
+      await page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>chrome.storage.local.set({'allhere.library.v1':[...data['allhere.library.v1'],${JSON.stringify(legacyResponsive)}]}))`);
       await page.evaluate("document.querySelector('.button--scan').click()",true);
-      const initial=await until(async()=>{const value=await read();return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete');
+      const initial=await until(async()=>{const value=await read();const notice=await page.evaluate("document.querySelector('.notice')?.textContent");if(notice?.includes('Could not scan'))throw Error(notice);return value?.resources.some(item=>item.label==='Shadow image')&&value.resources.some(item=>item.label==='Frame image')?value:null},'Initial image, shadow DOM, or frame scan did not complete').catch(async error=>{console.log(await page.evaluate("({notice:document.querySelector('.notice')?.textContent,busy:document.querySelector('.button--scan')?.disabled})"));console.log((await read())?.resources.map(({label,url})=>({label,url:url.startsWith('data:')?url.slice(0,60):url})));throw error;});
       assert.equal(await page.evaluate("Boolean(document.querySelector('.auto-updates,.auto-updates__toggle'))"),false,'Manual scanning must not add an automatic-update control row');
       await expectScanState('ready');
       assert.equal(await page.evaluate("document.querySelector('.button--scan span:last-child').textContent"),'Scan again','Successful scans need a text indication as well as color');
@@ -759,13 +794,51 @@ try {
       assert.equal(await page.evaluate(`chrome.permissions.contains({origins:[${JSON.stringify(base.replace('127.0.0.1','localhost')+'/*')}]})`),false,'A CDN favicon must not add host access');
       await live.evaluate("document.querySelector('link[rel=icon]').href='/favicon.ico'");
       await expectFavicon('/favicon.ico');
-      const asset=(snapshot,path)=>snapshot.resources.filter(item=>item.url.includes(path));
+      const asset=(snapshot,path)=>snapshot.resources.filter(item=>item.url.includes(path)||item.variantUrls?.some(url=>url.includes(path)));
       assert.ok(asset(initial,'/first.png').length===1 && asset(initial,'/lazy.png').length===1,'Loaded and lazy images should both be kept');
       assert.ok(asset(initial,'/shadow.png').length===1 && asset(initial,'/frame.png').length===1,'Shadow DOM and frame images should be kept');
+      assert.ok(asset(initial,'/closed.png').length===1&&initial.resources.some(item=>item.label==='Closed shadow icon'),'Closed author shadow roots must contribute images and icons');
+      assert.ok(!initial.resources.some(item=>item.label==='Foreign private image'),'Scanning must respect inaccessible cross-origin frames');
+      assert.equal(asset(initial,'/detached.png').length,1,'Images loaded outside the DOM must be recovered from resource timings');
+      assert.equal(asset(initial,'/dynamic-module.mjs')[0]?.kind,'script','Dynamic JavaScript modules must be collected');
       assert.ok(initial.resources.some(item=>item.label==='Inline raster image'&&item.url.startsWith('data:image/png')),'Inline raster image should remain visible');
       assert.ok(asset(initial,'/mask.svg').length===1 && asset(initial,'/pseudo.png').length===1,'CSS icons and pseudo images should be kept');
       assert.equal(asset(initial,'/scene.blend')[0]?.kind,'other','Uncommon file extensions should be downloadable resources');
       assert.equal(asset(initial,'/opaque-download')[0]?.kind,'other','Download attributes should mark extensionless file URLs as resources');
+      for(const path of ['/assets/deferred.png','/original.png','/responsive-small.png','/responsive-large.png','/alternate.png','/picture.png','/deferred-small.png','/deferred-large.png','/background(1).png','/set-one.png','/set-two.png','/border.png']) {
+        assert.equal(asset(initial,path).length,1,`Lazy, responsive, and CSS capture missed ${path}`);
+      }
+      assert.equal(initial.resources.filter(item=>item.alt==='Responsive image').length,1,'One responsive image must render once, rather than once per src/srcset URL');
+      const responsive=initial.resources.find(item=>item.alt==='Responsive image');
+      assert.equal(responsive.id,'legacy-responsive-0','Cleaning legacy copies must retain the earliest ID');
+      assert.equal(responsive.saved,true,'A bookmark on any older duplicate must survive cleanup');
+      assert.equal(responsive.variantUrls.filter(url=>url.includes('/responsive-')).length,3,'Keep all responsive source URLs inside the single item');
+      assert.equal(initial.resources.filter(item=>item.alt?.startsWith('Distinct lazy')).length,2,'A shared lazy placeholder must never merge distinct photos');
+      const posters=initial.resources.filter(item=>item.alt==='IMDb poster');
+      assert.equal(posters.length,1,'IMDb-style poster resize paths with comma-separated crop coordinates must share one card');
+      assert.equal(posters[0].variantUrls.length,3,'All three poster resolutions must remain available as source aliases');
+      assert.equal(asset(initial,'/missing.png').length,0,'A broken placeholder must not hide the real lazy source');
+      assert.equal(asset(initial,'/fragment.svg').length,2,`Distinct SVG fragment views must survive: ${JSON.stringify(asset(initial,'/fragment.svg').map(({url,identityUrl,variantUrls})=>({url,identityUrl,variantUrls})))} DOM: ${JSON.stringify(await live.evaluate("[...document.querySelectorAll('img')].filter(image=>image.src.includes('/fragment.svg')).map(image=>({src:image.src,currentSrc:image.currentSrc}))"))}`);
+      assert.equal(asset(initial,'/first.png').length,1,'A downloaded image and its img element must share one entry');
+      assert.equal(asset(initial,'/alternative.mp4')[0]?.kind,'video','Alternate direct media sources must be kept');
+      const vector = label => initial.resources.find(item=>item.label===label || (label==='Gradient icon'&&item.label==='Duplicate gradient icon'));
+      assert.ok(vector('Hidden menu icon'),'Hidden menu icons with intrinsic dimensions must be retained');
+      assert.equal(vector('Large illustration')?.kind,'image','Large SVG illustrations must be collected');
+      assert.equal(initial.resources.filter(item=>/gradient icon/i.test(item.label)&&!item.label.startsWith('External')).length,1,'Different titles, classes, IDs, attribute order and rendered sizes must not duplicate SVG icons');
+      assert.ok(vector('Nested icon'),'Nested SVG content must be retained');
+      const pixels = async label => {
+        const item=vector(label);assert.ok(item,`Missing ${label}`);
+        return page.evaluate(`(async()=>{const image=new Image();image.src=${JSON.stringify(item.url)};await image.decode();const canvas=document.createElement('canvas');canvas.width=24;canvas.height=24;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,24,24);const pixel=(x,y)=>[...ctx.getImageData(x,y,1,1).data];return {left:pixel(3,12),right:pixel(20,12),middle:pixel(12,12),corner:pixel(2,2)};})()`);
+      };
+      for(const label of ['Gradient icon','External gradient icon']) {
+        const color=await pixels(label);
+        assert.ok(color.left[0]>color.left[2]&&color.right[2]>color.right[0]&&color.left[3]>0,`${label} lost its gradient or currentColor`);
+      }
+      const clip=await pixels('Clipped icon');assert.ok(clip.left[3]>0&&clip.right[3]===0,'External local clip definitions must stay intact');
+      const green=await pixels('External green icon');assert.ok(green.left[1]>green.left[0]&&green.left[1]>green.left[2],'Differently colored instances of the same sprite must remain distinct');
+      const combined=await pixels('Combined sprite icon');assert.ok(combined.corner[0]>200&&combined.middle[3]===0,'Multiple external uses must preserve their placement in a combined icon');
+      const group=await pixels('Local group icon');assert.ok(group.middle[0]>200&&group.corner[3]===0,'Local use references must retain x/y placement and group definitions');
+      const styled=await pixels('CSS styled icon');assert.ok(styled.middle[0]>200&&styled.middle[1]<30&&styled.middle[2]<30,'CSS must override presentation attributes in captured icons');
       const fontIcons = initial.resources.filter(item => item.description?.endsWith('font icon'));
       assert.equal(fontIcons.length, 2, 'Pseudo and hover glyphs should be captured once each; missing fonts and ordinary text must be ignored');
       assert.ok(fontIcons.some(item => item.label === 'Pseudo font glyph') && fontIcons.some(item => item.label === 'Hover font glyph'), 'Font glyph descriptions should survive capture');
@@ -780,6 +853,7 @@ try {
       assert.ok(initial.resources.some(item=>item.label==='Shadow icon')&&initial.resources.some(item=>item.label==='Frame icon'));
       await until(()=>page.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Live gallery'"),'Active tab did not select its source page');
       await page.evaluate("document.querySelector('[data-resource-tab=images]').click();document.querySelector('[aria-label=\"List view\"]').click();window.scrollTo(0,260)",true);
+      assert.equal(await page.evaluate("document.querySelectorAll('.resource-table img[alt=\"Responsive image\"]').length"),1,'The extension list must show one row for the responsive image');
       const beforeUpdate=await page.evaluate("({source:document.querySelector('.page-scope__selection strong')?.textContent,section:document.querySelector('[aria-selected=true][data-resource-tab]')?.getAttribute('data-resource-tab'),list:document.querySelector('[aria-label=\"List view\"]')?.getAttribute('aria-pressed'),scroll:window.scrollY,images:Number(document.querySelector('[data-resource-tab=images] span')?.textContent),notice:document.querySelector('.notice')?.textContent})");
       assert.ok(beforeUpdate.scroll>0,'The sidebar fixture must be scrollable for the position check');
       const first=asset(initial,'/first.png')[0];
@@ -906,7 +980,7 @@ try {
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),beforeMissingAccess,'A stale capture must not be saved after cross-site navigation hides its URL');
         assert.deepEqual(await page.evaluate('window.__scanRequests'),[],'Lost access during a scan must not request persistent host access');
         await page.send('Page.reload');
-        await until(()=>page.evaluate("Boolean(document.querySelector('.allhere-shell'))"),'Panel did not reopen');
+        await until(()=>page.evaluate("Boolean(document.querySelector('.stashwell-shell'))"),'Panel did not reopen');
         const reopened=await page.evaluate("chrome.storage.local.get('allhere.library.v1')");
         await delay(1600);
         assert.deepEqual(await page.evaluate("chrome.storage.local.get('allhere.library.v1')"),reopened,'Reopening the panel must not scan');
@@ -973,7 +1047,7 @@ try {
       await page.send('Input.dispatchMouseEvent',{type:'mousePressed',...sourcePoint,button:'left',clickCount:1});
       await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:sourcePoint.x+40,y:sourcePoint.y+35,button:'left',buttons:1});
       const native=await until(()=>page.events.slice(start).find(event=>event.method==='Input.dragIntercepted')?.params.data,'Native dragstart did not fire');
-      assert.ok(native.items.some(item=>item.mimeType.startsWith('application/x-allhere-file-')),'Native drag must retain the cross-page capability');
+      assert.ok(native.items.some(item=>item.mimeType.startsWith('application/x-stashwell-file-')),'Native drag must retain the cross-page capability');
       await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:sourcePoint.x+40,y:sourcePoint.y+35,button:'left',clickCount:1});
       await page.send('Input.setInterceptDrags',{enabled:false});
       const nativeBefore=await dest.evaluate('received.length');await deliver(native,'#drop');
@@ -1117,7 +1191,7 @@ try {
   browser.kill();
   server.close();
   const target = resolve(profile);
-  if (target.startsWith(resolve(tmpdir()) + sep) && basename(target).startsWith("allhere-image-actions-")) {
+  if (target.startsWith(resolve(tmpdir()) + sep) && basename(target).startsWith("stashwell-image-actions-")) {
     for (let attempt = 0; attempt < 10; attempt++) {
       try { await rm(target, { recursive: true, force: true }); break; } catch { await delay(500); }
     }

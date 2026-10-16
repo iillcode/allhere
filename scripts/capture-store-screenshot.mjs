@@ -5,16 +5,16 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { localFixtureExtension } from "./extension-fixture.mjs";
 
-const width = Number(process.env.ALLHERE_SCREENSHOT_WIDTH ?? 640);
-const height = Number(process.env.ALLHERE_SCREENSHOT_HEIGHT ?? 400);
-const scrollY = Number(process.env.ALLHERE_SCREENSHOT_SCROLL_Y ?? 80);
-const view = process.env.ALLHERE_SCREENSHOT_VIEW ?? "images";
-const source = process.env.ALLHERE_SCREENSHOT_SOURCE ?? "installed";
+const width = Number(process.env.STASHWELL_SCREENSHOT_WIDTH ?? 640);
+const height = Number(process.env.STASHWELL_SCREENSHOT_HEIGHT ?? 400);
+const scrollY = Number(process.env.STASHWELL_SCREENSHOT_SCROLL_Y ?? 80);
+const view = process.env.STASHWELL_SCREENSHOT_VIEW ?? "images";
+const source = process.env.STASHWELL_SCREENSHOT_SOURCE ?? "installed";
 if (![[1280, 800], [640, 400]].some(([expectedWidth, expectedHeight]) => width === expectedWidth && height === expectedHeight)) {
   throw new Error("Store screenshots must be 1280x800 or 640x400.");
 }
-const destination = resolve(`docs/chrome-web-store-assets/allhere-screenshot-${view}${scrollY ? "-scrolled" : ""}-${width}x${height}.png`);
-const webUrl = process.env.ALLHERE_WEB_URL ?? "http://127.0.0.1:3002/";
+const destination = resolve(`docs/chrome-web-store-assets/stashwell-screenshot-${view}${scrollY ? "-scrolled" : ""}-${width}x${height}.png`);
+const webUrl = process.env.STASHWELL_WEB_URL ?? "http://127.0.0.1:3002/";
 const port = await new Promise((done) => {
   const server = createServer();
   server.listen(0, "127.0.0.1", () => {
@@ -22,9 +22,9 @@ const port = await new Promise((done) => {
     server.close(() => done(assigned));
   });
 });
-const profile = join(tmpdir(), `allhere-store-screenshot-${crypto.randomUUID()}`);
+const profile = join(tmpdir(), `stashwell-store-screenshot-${crypto.randomUUID()}`);
 const extensionPath = source === "installed" ? await localFixtureExtension(profile, [webUrl]) : undefined;
-const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
+const browser = spawn(process.env.STASHWELL_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`,
   `--remote-debugging-port=${port}`,
   "--headless=new",
@@ -112,7 +112,7 @@ try {
   }
   await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
   await page.send("Page.reload", { ignoreCache: true });
-  await until(() => page.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "The extension interface did not render.");
+  await until(() => page.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "The extension interface did not render.");
   if (source === "installed") await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
   if (source === "installed") {
     const { targetId: sourceId } = await controller.send("Target.createTarget", { url: webUrl });

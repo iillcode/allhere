@@ -75,9 +75,9 @@ const server = createServer((request, response) => {
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const base = `http://127.0.0.1:${server.address().port}`;
 const debugPort = await new Promise(done => { const s = portServer(); s.listen(0, "127.0.0.1", () => { const port = s.address().port; s.close(() => done(port)); }); });
-const profile = await mkdtemp(join(tmpdir(), "allhere-auto-"));
+const profile = await mkdtemp(join(tmpdir(), "stashwell-auto-"));
 const extension = await localFixtureExtension(profile);
-const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
+const browser = spawn(process.env.STASHWELL_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run", "--no-default-browser-check",
   "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
   `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "about:blank",
@@ -123,7 +123,7 @@ try {
     await panel.evaluate(`[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.trim().startsWith(${JSON.stringify(label)})).click()`, true);
   };
   const add = (name, client = source) => client.evaluate(`(()=>{const image=new Image();image.src='/${name}.png';image.alt=${JSON.stringify(name)};image.width=200;image.height=140;document.body.append(image);})()`);
-  const contains = async (name, url) => (await current(url))?.resources.some(resource => resource.url.endsWith(`/${name}.png`));
+  const contains = async (name, url) => (await current(url))?.resources.some(resource => [resource.url, ...(resource.variantUrls ?? [])].some(source => source.endsWith(`/${name}.png`)));
   const waitResource = (name, url) => until(() => contains(name, url), `Automatic update missed ${name}`);
   const manual = async () => {
     await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false&&window.__activeCaptures===0"), "Scan is still busy");
@@ -183,6 +183,23 @@ try {
   const iconBefore = await until(async () => (await current())?.resources.find(resource => resource.label === 'Dynamic icon'), 'Dynamic SVG was not collected');
   await source.evaluate("document.querySelector('#live-svg path').setAttribute('d','M0 0h20v20H0z')");
   await until(async () => (await current())?.resources.some(resource => resource.label === 'Dynamic icon' && resource.url !== iconBefore.url), 'SVG attribute updates were not collected');
+  await source.evaluate("document.querySelector('#live-svg').innerHTML='<circle cx=\"12\" cy=\"12\" r=\"4\" fill=\"red\"/>'");
+  const circleBefore = await until(async () => (await current())?.resources.find(resource => resource.label === 'Dynamic icon' && decodeURIComponent(resource.url).includes('r=\"4\"')), 'Circle icon was not collected');
+  await source.evaluate("document.querySelector('#live-svg circle').setAttribute('r','9')");
+  await until(async () => (await current())?.resources.some(resource => resource.label === 'Dynamic icon' && resource.url !== circleBefore.url && decodeURIComponent(resource.url).includes('r=\"9\"')), 'Circle geometry changes must trigger capture');
+  await source.evaluate("const lazy=document.createElement('img');lazy.id='lazy-auto';lazy.setAttribute('data-src','/lazy-auto.png');document.body.append(lazy)");
+  await waitResource('lazy-auto');
+  const lazyBefore = (await current()).resources.find(resource=>resource.url.endsWith('/lazy-auto.png'));
+  await source.evaluate("document.querySelector('#lazy-auto').setAttribute('data-lazy-srcset','/lazy-auto-next.png 2x')");
+  await waitResource('lazy-auto-next');
+  const lazyAfter = (await current()).resources.filter(resource=>[resource.url,...(resource.variantUrls??[])].some(url=>url.includes('/lazy-auto')));
+  assert.equal(lazyAfter.length,1,'Discovering another responsive source must update one item without adding a card');
+  assert.equal(lazyAfter[0].id,lazyBefore.id,'Automatic variant discovery must retain the existing image ID');
+  await source.evaluate("const host=document.createElement('div');host.id='closed-auto-host';document.body.append(host)");
+  await source.evaluate("window.__closedRoot=document.querySelector('#closed-auto-host').attachShadow({mode:'closed'});window.__closedRoot.innerHTML='<img src=\"/closed-auto.png\" width=\"200\" height=\"140\">'");
+  await waitResource('closed-auto');
+  await source.evaluate("window.__closedRoot.querySelector('img').src='/closed-auto-next.png'");
+  await waitResource('closed-auto-next');
   await source.evaluate("const root=document.querySelector('#shadow-host').attachShadow({mode:'open'});root.innerHTML='<img src=\"/shadow-auto.png\" alt=\"Shadow auto\" width=\"200\" height=\"140\">'");
   await waitResource("shadow-auto");
   await source.evaluate("const frame=document.createElement('iframe');frame.src='/frame';document.body.append(frame)");

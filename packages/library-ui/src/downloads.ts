@@ -24,13 +24,14 @@ type ChromeApi = {
   } };
 };
 const api = () => (globalThis as typeof globalThis & { chrome?: ChromeApi }).chrome;
+// Matches the original worker key so download history survives the rename.
 const KEY = "allhere.downloads.v1";
 export const downloading = (job: DownloadJob) => ["preparing", "queued", "downloading", "processing", "saving"].includes(job.state);
 
 async function message(action: string, payload: Record<string, unknown> = {}) {
   const chrome = api();
-  if (!chrome?.runtime) throw new Error("Downloads are available in the installed Allhere extension.");
-  const response = await chrome.runtime.sendMessage({ type: `allhere.download.${action}`, ...payload });
+  if (!chrome?.runtime) throw new Error("Downloads are available in the installed Stashwell extension.");
+  const response = await chrome.runtime.sendMessage({ type: `stashwell.download.${action}`, ...payload });
   if (!response?.ok) throw new Error(response?.error || "The download could not start. Reload the extension and try again.");
   return response.result;
 }

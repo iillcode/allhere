@@ -63,7 +63,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 a { color: inherit; text-decoration: none; }
 
-.allhere-shell {
+.stashwell-shell {
   display: flex;
   min-height: 100vh;
   flex-direction: column;
@@ -87,7 +87,7 @@ a { color: inherit; text-decoration: none; }
 .topbar__brand-cluster { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .topbar__menu { display: none !important; }
 .brand { display: inline-flex; align-items: center; gap: 11px; min-width: 0; }
-.brand__mark { display: grid; width: 36px; height: 36px; place-items: center; }
+.brand__mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; }
 .brand__mark img { display: block; width: 100%; height: 100%; }
 .brand__word { color: #3c4043; font-size: 21px; font-weight: 500; letter-spacing: -.035em; }
 
@@ -174,8 +174,8 @@ a { color: inherit; text-decoration: none; }
 .library-manager__empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; padding: 25px 10px; color: var(--ink-muted); text-align: center; }
 .library-manager__empty h2 { margin: 13px 0 7px; color: var(--ink); font-size: 17px; font-weight: 400; }
 .library-manager__empty p { margin: 0; font-size: 12px; line-height: 1.5; }
-.allhere-shell--web .library-manager__search { display: none; }
-.allhere-shell--extension .library-manager__toolbar { top: var(--topbar-height, 64px); }
+.stashwell-shell--web .library-manager__search { display: none; }
+.stashwell-shell--extension .library-manager__toolbar { top: var(--topbar-height, 64px); }
 .button {
   display: inline-flex;
   min-height: 40px;
@@ -570,10 +570,10 @@ a { color: inherit; text-decoration: none; }
 
 .resource-modal { width: min(440px, calc(100% - 24px)); max-width: none; max-height: calc(100dvh - 24px); margin: auto; padding: 0; overflow: auto; overscroll-behavior: contain; border: 0; border-radius: 16px; color: var(--ink); background: var(--surface); box-shadow: 0 8px 28px rgb(32 33 36 / 24%); }
 .resource-modal::backdrop { background: rgb(32 33 36 / 42%); }
-.allhere-shell .resource-modal .details-panel { position: static; inset: auto; width: 100%; max-height: none; margin: 0; overflow: visible; border: 0; box-shadow: none; background: var(--surface); }
+.stashwell-shell .resource-modal .details-panel { position: static; inset: auto; width: 100%; max-height: none; margin: 0; overflow: visible; border: 0; box-shadow: none; background: var(--surface); }
 .resource-modal .details-panel__top { position: sticky; z-index: 3; top: 0; min-height: 52px; background: var(--surface); }
 .resource-modal .details-panel__top .icon-button { width: 36px; height: 36px; }
-.allhere-shell .resource-modal .details-panel > .resource-art { height: auto; min-height: 0; aspect-ratio: 1; margin: 0 12px 16px; border-radius: 12px; }
+.stashwell-shell .resource-modal .details-panel > .resource-art { height: auto; min-height: 0; aspect-ratio: 1; margin: 0 12px 16px; border-radius: 12px; }
 .resource-modal .resource-art__image, .resource-modal .resource-art__video { object-fit: contain; }
 .resource-modal .resource-art__video { z-index: 2; }
 .resource-modal .resource-art__font-sample { font-size: clamp(48px, 18vw, 80px); }
@@ -609,8 +609,8 @@ a { color: inherit; text-decoration: none; }
 .download-tray__job p { margin: 7px 0 0 26px; color: var(--red); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .download-tray .download-tray__access { display: inline-flex; width: auto; height: auto; min-height: 32px; margin: 8px 0 0 26px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--blue); background: var(--surface-selected); font: inherit; font-size: 12px; cursor: pointer; }
 .download-tray .download-tray__access:disabled { opacity: .6; cursor: wait; }
-.allhere-shell--downloading .workspace { padding-bottom: calc(var(--download-tray-height, 120px) + 24px); }
-.allhere-shell--downloading .bulk-selection { bottom: calc(var(--download-tray-height, 120px) + 22px); }
+.stashwell-shell--downloading .workspace { padding-bottom: calc(var(--download-tray-height, 120px) + 24px); }
+.stashwell-shell--downloading .bulk-selection { bottom: calc(var(--download-tray-height, 120px) + 22px); }
 .modal-downloads { position: sticky; z-index: 4; bottom: 0; margin-bottom: -20px; background: var(--surface); }
 .modal-downloads .download-tray { position: static; width: 100%; max-width: none; margin: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; }
 
@@ -630,7 +630,7 @@ a { color: inherit; text-decoration: none; }
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.allhere-shell--selecting .main-content { padding-bottom: 104px; }
+.stashwell-shell--selecting .main-content { padding-bottom: 104px; }
 .bulk-selection { position: fixed; z-index: 26; bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px)); left: 50%; display: grid; width: max-content; max-width: calc(100vw - 20px); grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 8px 7px 13px; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 15px; color: var(--ink); background: var(--surface); box-shadow: 0 10px 28px rgb(32 33 36 / 20%); }
 .bulk-selection__count { display: grid; min-width: 78px; grid-template-columns: auto 1fr; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; }
 .bulk-selection__count strong { color: var(--blue-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -648,55 +648,55 @@ a { color: inherit; text-decoration: none; }
 .bulk-selection__menu-panel button:hover { color: var(--blue-ink); background: var(--surface-selected); }
 .bulk-selection__menu-panel svg { flex: 0 0 auto; }
 .app-footer { display: flex; min-height: 39px; align-items: center; justify-content: flex-end; gap: 12px; padding: 0 22px; border-top: 1px solid var(--line); color: var(--ink-faint); background: #fff; font-size: 10px; }
-.allhere-shell--extension { min-height: 100vh; }
-.allhere-shell--extension .topbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 64px; align-items: center; column-gap: 12px; row-gap: 0; min-height: 64px; padding: 0 0 0 8px; }
-.allhere-shell--extension .brand__word { font-size: 19px; }
-.allhere-shell--extension .brand__mark { width: 36px; height: 36px; }
-.allhere-shell--extension .searchbox { display: none; }
-.allhere-shell--extension .topbar__actions { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; gap: 5px; }
-.allhere-shell--extension .topbar__export { display: none; }
-.allhere-shell--extension .topbar__menu { display: none !important; }
-.allhere-shell--extension .topbar__actions .button { min-height: 40px; padding-inline: 12px; gap: 8px; border-radius: 22px; font-size: 14px; white-space: nowrap; }
-.allhere-shell--extension .topbar__actions .button svg { flex: 0 0 auto; }
-.allhere-shell--extension .sidebar { display: none; }
-.allhere-shell--extension .main-content { padding: 14px 14px 24px; }
-.allhere-shell--extension.allhere-shell--selecting .main-content { padding-bottom: 104px; }
-.allhere-shell--extension .content-heading { min-height: 54px; align-items: center; gap: 8px; }
-.allhere-shell--extension .content-heading__title h1 { font-size: 22px; }
-.allhere-shell--extension .content-heading__title p { margin-top: 4px; font-size: 11px; }
-.allhere-shell--extension .content-heading__actions .button { display: none; }
-.allhere-shell--extension .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
-.allhere-shell--extension .resource-album__title strong { font-size: 14px; }
-.allhere-shell--extension .resource-album__grid { gap: 6px; }
-.allhere-shell--extension .resource-album__tile > .resource-art { height: auto; }
-.allhere-shell--extension .resource-art { height: 116px; }
-.allhere-shell--extension .resource-art--compact { height: 42px; min-height: 42px; max-height: 42px; }
-.allhere-shell--extension .resource-table-wrap { min-width: 0; overflow-x: hidden; }
-.allhere-shell--extension .resource-table { display: block; width: 100%; table-layout: auto; }
-.allhere-shell--extension .resource-table thead { display: none; }
-.allhere-shell--extension .resource-table tbody { display: grid; width: 100%; }
-.allhere-shell--extension .resource-table tbody tr { display: grid; width: 100%; min-width: 0; min-height: 72px; grid-template-columns: minmax(0, 1fr) 84px 56px; align-items: center; border-bottom: 1px solid #eceff1; }
-.allhere-shell--extension .resource-table tbody td { display: flex; min-width: 0; height: auto; align-items: center; border: 0; }
-.allhere-shell--extension .resource-table tbody td:first-child { overflow: hidden; padding-left: 12px; }
-.allhere-shell--extension .resource-table:not(.resource-table--links) th:nth-child(2),
-.allhere-shell--extension .resource-table:not(.resource-table--links) td:nth-child(2),
-.allhere-shell--extension .resource-table:not(.resource-table--links) th:nth-child(3),
-.allhere-shell--extension .resource-table:not(.resource-table--links) td:nth-child(3),
-.allhere-shell--extension .resource-table:not(.resource-table--links) th:nth-child(5),
-.allhere-shell--extension .resource-table:not(.resource-table--links) td:nth-child(5),
-.allhere-shell--extension .resource-table--links th:nth-child(3),
-.allhere-shell--extension .resource-table--links td:nth-child(3),
-.allhere-shell--extension .resource-table--links th:nth-child(4),
-.allhere-shell--extension .resource-table--links td:nth-child(4) { display: none; }
-.allhere-shell--extension .resource-table .table-actions { justify-content: flex-end; padding: 0 10px 0 0; }
-.allhere-shell--extension .resource-table .table-name { width: 100%; max-width: none; min-width: 0; gap: 8px; }
-.allhere-shell--extension .resource-table .table-name--link small { max-width: 100%; }
-.allhere-shell--extension .resource-table .security-pip { max-width: 100%; }
-.allhere-shell--extension .resource-table .security-pip span { min-width: 0; max-width: 54px; overflow: hidden; text-overflow: ellipsis; }
-.allhere-shell--extension .resource-card__meta { padding-inline: 9px; }
-.allhere-shell--extension .resource-card__copy { padding-inline: 9px; }
-.allhere-shell--extension .collection-toolbar { position: sticky; z-index: 19; top: var(--topbar-height, 64px); flex-direction: column; align-items: stretch; gap: 5px; min-height: 0; margin: 7px -14px 8px; padding: 7px 14px 6px; border-bottom: 1px solid var(--line); background: var(--surface); box-shadow: 0 4px 8px rgb(60 64 67 / 5%); }
-.allhere-shell--extension .page-scope { display: grid; width: 100%; gap: 4px; color: var(--ink-muted); font-size: 11px; font-weight: 500; }
+.stashwell-shell--extension { min-height: 100vh; }
+.stashwell-shell--extension .topbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 64px; align-items: center; column-gap: 12px; row-gap: 0; min-height: 64px; padding: 0 0 0 8px; }
+.stashwell-shell--extension .brand__word { font-size: 19px; }
+.stashwell-shell--extension .brand__mark { width: 36px; height: 36px; }
+.stashwell-shell--extension .searchbox { display: none; }
+.stashwell-shell--extension .topbar__actions { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; gap: 5px; }
+.stashwell-shell--extension .topbar__export { display: none; }
+.stashwell-shell--extension .topbar__menu { display: none !important; }
+.stashwell-shell--extension .topbar__actions .button { min-height: 40px; padding-inline: 12px; gap: 8px; border-radius: 22px; font-size: 14px; white-space: nowrap; }
+.stashwell-shell--extension .topbar__actions .button svg { flex: 0 0 auto; }
+.stashwell-shell--extension .sidebar { display: none; }
+.stashwell-shell--extension .main-content { padding: 14px 14px 24px; }
+.stashwell-shell--extension.stashwell-shell--selecting .main-content { padding-bottom: 104px; }
+.stashwell-shell--extension .content-heading { min-height: 54px; align-items: center; gap: 8px; }
+.stashwell-shell--extension .content-heading__title h1 { font-size: 22px; }
+.stashwell-shell--extension .content-heading__title p { margin-top: 4px; font-size: 11px; }
+.stashwell-shell--extension .content-heading__actions .button { display: none; }
+.stashwell-shell--extension .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.stashwell-shell--extension .resource-album__title strong { font-size: 14px; }
+.stashwell-shell--extension .resource-album__grid { gap: 6px; }
+.stashwell-shell--extension .resource-album__tile > .resource-art { height: auto; }
+.stashwell-shell--extension .resource-art { height: 116px; }
+.stashwell-shell--extension .resource-art--compact { height: 42px; min-height: 42px; max-height: 42px; }
+.stashwell-shell--extension .resource-table-wrap { min-width: 0; overflow-x: hidden; }
+.stashwell-shell--extension .resource-table { display: block; width: 100%; table-layout: auto; }
+.stashwell-shell--extension .resource-table thead { display: none; }
+.stashwell-shell--extension .resource-table tbody { display: grid; width: 100%; }
+.stashwell-shell--extension .resource-table tbody tr { display: grid; width: 100%; min-width: 0; min-height: 72px; grid-template-columns: minmax(0, 1fr) 84px 56px; align-items: center; border-bottom: 1px solid #eceff1; }
+.stashwell-shell--extension .resource-table tbody td { display: flex; min-width: 0; height: auto; align-items: center; border: 0; }
+.stashwell-shell--extension .resource-table tbody td:first-child { overflow: hidden; padding-left: 12px; }
+.stashwell-shell--extension .resource-table:not(.resource-table--links) th:nth-child(2),
+.stashwell-shell--extension .resource-table:not(.resource-table--links) td:nth-child(2),
+.stashwell-shell--extension .resource-table:not(.resource-table--links) th:nth-child(3),
+.stashwell-shell--extension .resource-table:not(.resource-table--links) td:nth-child(3),
+.stashwell-shell--extension .resource-table:not(.resource-table--links) th:nth-child(5),
+.stashwell-shell--extension .resource-table:not(.resource-table--links) td:nth-child(5),
+.stashwell-shell--extension .resource-table--links th:nth-child(3),
+.stashwell-shell--extension .resource-table--links td:nth-child(3),
+.stashwell-shell--extension .resource-table--links th:nth-child(4),
+.stashwell-shell--extension .resource-table--links td:nth-child(4) { display: none; }
+.stashwell-shell--extension .resource-table .table-actions { justify-content: flex-end; padding: 0 10px 0 0; }
+.stashwell-shell--extension .resource-table .table-name { width: 100%; max-width: none; min-width: 0; gap: 8px; }
+.stashwell-shell--extension .resource-table .table-name--link small { max-width: 100%; }
+.stashwell-shell--extension .resource-table .security-pip { max-width: 100%; }
+.stashwell-shell--extension .resource-table .security-pip span { min-width: 0; max-width: 54px; overflow: hidden; text-overflow: ellipsis; }
+.stashwell-shell--extension .resource-card__meta { padding-inline: 9px; }
+.stashwell-shell--extension .resource-card__copy { padding-inline: 9px; }
+.stashwell-shell--extension .collection-toolbar { position: sticky; z-index: 19; top: var(--topbar-height, 64px); flex-direction: column; align-items: stretch; gap: 5px; min-height: 0; margin: 7px -14px 8px; padding: 7px 14px 6px; border-bottom: 1px solid var(--line); background: var(--surface); box-shadow: 0 4px 8px rgb(60 64 67 / 5%); }
+.stashwell-shell--extension .page-scope { display: grid; width: 100%; gap: 4px; color: var(--ink-muted); font-size: 11px; font-weight: 500; }
 .page-scope__label { display: flex; justify-content: space-between; gap: 8px; line-height: 1.2; }
 .page-scope__control { position: relative; z-index: 1; min-width: 0; }
 .page-scope__control--open { z-index: 20; }
@@ -719,14 +719,14 @@ a { color: inherit; text-decoration: none; }
 .page-scope__option-copy strong, .page-scope__option-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .page-scope__option-copy strong { color: inherit; font-size: 11px; font-weight: 500; }
 .page-scope__option-copy small { color: var(--ink-muted); font-size: 10px; font-weight: 400; }
-.allhere-shell--extension .category-pills { margin-inline: -3px; }
-.allhere-shell--extension .category-pill { min-height: 32px; padding-inline: 9px; font-size: 11px; }
-.allhere-shell--extension .category-pill span { display: none; }
-.allhere-shell--extension .collection-meta { min-height: 27px; justify-content: space-between; padding-inline: 3px; }
-.allhere-shell--extension .notice { min-height: 36px; margin-bottom: 8px; }
-.allhere-shell--extension .details-panel { position: fixed; z-index: 30; inset: 0; width: min(100%, 440px); max-height: none; margin: 0; border: 0; box-shadow: 0 0 0 100vmax rgb(32 33 36 / 28%); }
-.allhere-shell--extension .details-panel > .resource-art { height: 190px; }
-.allhere-shell--extension .app-footer { display: none; }
+.stashwell-shell--extension .category-pills { margin-inline: -3px; }
+.stashwell-shell--extension .category-pill { min-height: 32px; padding-inline: 9px; font-size: 11px; }
+.stashwell-shell--extension .category-pill span { display: none; }
+.stashwell-shell--extension .collection-meta { min-height: 27px; justify-content: space-between; padding-inline: 3px; }
+.stashwell-shell--extension .notice { min-height: 36px; margin-bottom: 8px; }
+.stashwell-shell--extension .details-panel { position: fixed; z-index: 30; inset: 0; width: min(100%, 440px); max-height: none; margin: 0; border: 0; box-shadow: 0 0 0 100vmax rgb(32 33 36 / 28%); }
+.stashwell-shell--extension .details-panel > .resource-art { height: 190px; }
+.stashwell-shell--extension .app-footer { display: none; }
 
 @media (max-width: 1280px) {
   .resource-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -784,8 +784,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 440px) {
-  .allhere-shell:not(.allhere-shell--extension) .topbar__actions .button { width: 38px; padding: 0; overflow: hidden; font-size: 0; }
-  .allhere-shell:not(.allhere-shell--extension) .topbar__actions .button svg { flex: 0 0 auto; }
+  .stashwell-shell:not(.stashwell-shell--extension) .topbar__actions .button { width: 38px; padding: 0; overflow: hidden; font-size: 0; }
+  .stashwell-shell:not(.stashwell-shell--extension) .topbar__actions .button svg { flex: 0 0 auto; }
   .resource-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resource-art { height: 99px; }
   .resource-card__title { font-size: 12px; }

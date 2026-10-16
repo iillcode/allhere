@@ -70,9 +70,9 @@ const server = createServer((request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const base = `http://127.0.0.1:${server.address().port}`;
 const debugPort = await new Promise((done) => { const socket = portServer(); socket.listen(0, "127.0.0.1", () => { const port = socket.address().port; socket.close(() => done(port)); }); });
-const profile = await mkdtemp(join(tmpdir(), "allhere-management-"));
+const profile = await mkdtemp(join(tmpdir(), "stashwell-management-"));
 const installedExtension = await localFixtureExtension(profile);
-const browser = spawn(process.env.ALLHERE_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
+const browser = spawn(process.env.STASHWELL_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run", "--no-default-browser-check",
   `--disable-extensions-except=${installedExtension}`, `--load-extension=${installedExtension}`, "about:blank",
 ], { windowsHide: true, stdio: "ignore" });
@@ -105,7 +105,7 @@ try {
     return client;
   }
   panel = await openPage(`chrome-extension://${new URL(worker.url).hostname}/index.html`);
-  await until(() => panel.evaluate("Boolean(document.querySelector('.allhere-shell'))"), "Library did not render");
+  await until(() => panel.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "Library did not render");
   await panel.evaluate("window.__faviconPermissionRequests=0;const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__faviconPermissionRequests++;return permission(options);}");
   await panel.evaluate(`chrome.storage.local.set({'allhere.library.v1': ${JSON.stringify([capture, other])}, 'allhere.capture-exclusions.v1': {pages:[],resources:{}}})`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Fixture library did not render");
@@ -130,7 +130,7 @@ try {
     assert.ok(await panel.evaluate("document.documentElement.scrollWidth <= innerWidth"), `${name}: horizontal overflow`);
     const alignment = await panel.evaluate("(() => { const menu=document.querySelector('.library-menu__trigger').getBoundingClientRect(), scan=document.querySelector('.button--scan').getBoundingClientRect(); return {menuRight:menu.right,menuLeft:menu.left,scanRight:scan.right,width:document.documentElement.clientWidth}; })()");
     assert.ok(alignment.menuRight <= alignment.width && alignment.menuLeft >= alignment.scanRight && alignment.width-alignment.menuRight <= 15, `${name}: menu must follow the scan button at the far right: ${JSON.stringify(alignment)}`);
-    if (process.env.ALLHERE_SKIP_EXTENSION_SHOTS === "1") return;
+    if (process.env.STASHWELL_SKIP_EXTENSION_SHOTS === "1") return;
     await mkdir(resolve(".impeccable/review"), { recursive: true });
     const { data } = await panel.send("Page.captureScreenshot", { format: "png" });
     await writeFile(resolve(`.impeccable/review/${name}.png`), Buffer.from(data, "base64"));
@@ -232,13 +232,13 @@ try {
   assert.equal(panel.errors.length, 0, "The extension reported an uncaught runtime exception");
 
   // Optional actual Next.js render of the shared management surface.
-  if (process.env.ALLHERE_WEB_URL) {
-    web = await openPage(process.env.ALLHERE_WEB_URL);
+  if (process.env.STASHWELL_WEB_URL) {
+    web = await openPage(process.env.STASHWELL_WEB_URL);
     const webShot = async (name) => {
       const { data } = await web.send("Page.captureScreenshot", { format: "png" });
       await writeFile(resolve(`.impeccable/review/${name}.png`), Buffer.from(data, "base64"));
     };
-    await until(() => web.evaluate("Boolean(document.querySelector('.allhere-shell--web'))"), "Web library did not render");
+    await until(() => web.evaluate("Boolean(document.querySelector('.stashwell-shell--web'))"), "Web library did not render");
     await web.evaluate(`localStorage.setItem('allhere.library.v1', ${JSON.stringify(JSON.stringify([capture, other]))}); location.reload()`);
     try { await until(() => web.evaluate("Boolean(document.querySelector('.resource-album'))"), "Web fixtures did not render"); }
     catch (error) {
@@ -293,7 +293,7 @@ try {
   if (browserCdp) { try { await browserCdp.send("Browser.close"); } catch { /* Already closed. */ } browserCdp.close(); }
   browser.kill(); server.close();
   const target = resolve(profile);
-  if (target.startsWith(resolve(tmpdir()) + sep) && basename(target).startsWith("allhere-management-")) {
+  if (target.startsWith(resolve(tmpdir()) + sep) && basename(target).startsWith("stashwell-management-")) {
     for (let attempt = 0; attempt < 10; attempt++) { try { await rm(target, { recursive: true, force: true }); break; } catch { await delay(500); } }
   }
 }
