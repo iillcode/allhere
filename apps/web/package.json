@@ -1,5 +1,5 @@
 {
-  "name": "@allhere/web",
+  "name": "@stashwell/web",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
@@ -9,7 +9,7 @@
     "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@allhere/library-ui": "workspace:*",
+    "@stashwell/library-ui": "workspace:*",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

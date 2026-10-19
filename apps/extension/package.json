@@ -1,5 +1,5 @@
 {
-  "name": "@allhere/extension",
+  "name": "@stashwell/extension",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,10 @@
     "clean": "node -e \"require('node:fs').rmSync('.next',{recursive:true,force:true});require('node:fs').rmSync('out',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@allhere/library-ui": "workspace:*",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@stashwell/library-ui": "workspace:*",
+    "fflate": "^0.8.3",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

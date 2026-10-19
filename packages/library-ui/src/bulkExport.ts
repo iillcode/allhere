@@ -1,4 +1,4 @@
-import type { ResourceKind } from "@allhere/core";
+import type { ResourceKind } from "@stashwell/core";
 import { Zip, ZipPassThrough } from "fflate";
 import { loadDownloadFile } from "./downloadFiles";
 import { convertImageDownload, originalDownloadFormats, type DownloadFormats } from "./imageDownloads";
@@ -86,7 +86,7 @@ export async function createResourceZip(
     throw new Error(`No selected resources could be added to the ZIP. ${firstFailure || "Check the links and try again."}`);
   }
   if (skipped.length) {
-    addFile("allhere-skipped.txt", new TextEncoder().encode(
+    addFile("stashwell-skipped.txt", new TextEncoder().encode(
       `These ${skipped.length} selected resources could not be included.\n\n${skipped.join("\n\n")}`,
     ));
   }

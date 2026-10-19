@@ -1,14 +1,14 @@
 // Cross-process drags may discard in-memory Files. A short-lived capability
 // lets the destination receive the exact file through extension messaging.
 (() => {
-  if (globalThis.__allhereFileDropInstalled) return;
-  globalThis.__allhereFileDropInstalled = true;
-  const prefix = "application/x-allhere-file-";
+  if (globalThis.__stashwellFileDropInstalled) return;
+  globalThis.__stashwellFileDropInstalled = true;
+  const prefix = "application/x-stashwell-file-";
   const replayed = new WeakSet();
   const dragListeners = [];
   let active, toast;
   let stopped = false;
-  const contextLostMessage = "Allhere was updated. Refresh this page to use drag and drop again.";
+  const contextLostMessage = "Stashwell was updated. Refresh this page to use drag and drop again.";
   function stop() {
     if (stopped) return;
     stopped = true;
@@ -44,8 +44,8 @@
     setTimeout(() => { host.remove(); if (toast === host) toast = undefined; }, 6000);
   }
   async function request(token, offset) {
-    const response = await sendMessage({ type: "allhere.drag.read", token, ...(offset === undefined ? {} : { offset }) });
-    if (!response || response.error) throw new Error(response?.error || "Keep Allhere open and drag the file again.");
+    const response = await sendMessage({ type: "stashwell.drag.read", token, ...(offset === undefined ? {} : { offset }) });
+    if (!response || response.error) throw new Error(response?.error || "Keep Stashwell open and drag the file again.");
     return response;
   }
   function acquire(token) {

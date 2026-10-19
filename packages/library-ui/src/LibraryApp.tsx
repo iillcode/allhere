@@ -59,7 +59,7 @@ import {
   type PageCapture,
   type ResourceKind,
   type RiskLevel,
-} from "@allhere/core";
+} from "@stashwell/core";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type HTMLAttributes, type ReactNode } from "react";
 import type { LibraryAdapter } from "./adapters";
 import { iconAsSvg, loadImageFile } from "./assetFiles";
@@ -79,6 +79,7 @@ import { DownloadTray } from "./DownloadTray";
 import { useDownloads, youtubeId } from "./downloads";
 import { emptyCaptureExclusions, filterExcludedCapture, restorePageCapture, scopeSavedCaptures, type CaptureExclusions } from "./libraryManagement";
 import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
+import type { RenderSelectionAction } from "./selectionActions";
 
 type Mode = "web" | "extension";
 type Category = "all" | "pages" | "images" | "saved" | "icons" | "fonts" | "links" | "media" | "files";
@@ -397,7 +398,7 @@ function previewFontFamily(url: string): Promise<string | undefined> {
   const existing = previewFontLoads.get(url);
   if (existing) return existing;
 
-  const family = `AllherePreview_${previewFontLoads.size}`;
+  const family = `StashwellPreview_${previewFontLoads.size}`;
   const loaded = fontFileForPreview(url)
     .then(async (fontFile) => {
       const blobUrl = await verifiedFontBlobUrl(fontFile);
@@ -683,9 +684,10 @@ function ResourceAlbum({ category, items, onOpen, onPreview, dragProps, selected
   );
 }
 
-export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: Mode }) {
+export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: LibraryAdapter; mode: Mode; renderSelectionAction?: RenderSelectionAction }) {
   const [captures, setCaptures] = useState<PageCapture[]>([]);
-  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const [chosenCaptureId, setChosenCaptureId] = useState<string | null>(null);
+  const [sourceOverrideKey, setSourceOverrideKey] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [category, setCategory] = useState<Category>("all");
   const [savedOnly, setSavedOnly] = useState(false);
@@ -713,6 +715,15 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const [downloadFormats, setDownloadFormats] = useState<DownloadFormats>(originalDownloadFormats);
   const downloads = useDownloads(mode === "extension");
   const activePage = useActivePage(adapter);
+  const activePageKey = `${activePage.page.tabId ?? ""}:${activePage.page.url ?? ""}`;
+  const activeCapture = captures.find(capture => capture.pageUrl === activePage.page.url);
+  const followsActivePage = mode === "extension" && !sampleMode && sourceOverrideKey !== activePageKey;
+  const selectedCaptureId = followsActivePage ? activeCapture?.id ?? null : chosenCaptureId;
+  const currentPageNeedsScan = followsActivePage && !activeCapture;
+  const setSelectedCaptureId = (captureId: string | null) => {
+    setChosenCaptureId(captureId);
+    if (mode === "extension") setSourceOverrideKey(activePageKey);
+  };
   const resourceActionInFlight = useRef(false);
   const resourceDrag = useResourceDrag(filenameForResource, setNotice);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -722,6 +733,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const sourcePageMenuRef = useRef<HTMLDivElement>(null);
   const libraryMenuRef = useRef<HTMLDivElement>(null);
   const bulkMenuRef = useRef<HTMLDivElement>(null);
+  const bulkSelectionRef = useRef<HTMLDivElement>(null);
   const libraryMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const savedMenuItemRef = useRef<HTMLButtonElement>(null);
   const captureSequenceRef = useRef(0);
@@ -743,6 +755,18 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const needsScan = activePage.needsScan || !autoUpdates.authorized;
 
   useEffect(() => {
+    if (mode !== "extension" || activePage.page.tabId === undefined) return;
+    setSourceOverrideKey(null);
+    setSavedOnly(false);
+    setSampleMode(false);
+    setManagementOpen(false);
+    setCategory("all");
+    setSelected(null);
+    setQuery("");
+    setSourcePageMenuOpen(false);
+  }, [mode, activePageKey]);
+
+  useEffect(() => {
     const header = topbarRef.current;
     if (!header) return;
     const measure = () => shellRef.current?.style.setProperty("--topbar-height", `${header.getBoundingClientRect().height}px`);
@@ -760,7 +784,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           capturesRef.current = stored;
           exclusionsRef.current = exclusions;
           setCaptures(stored);
-          setSelectedCaptureId(stored[0]?.id ?? null);
+          if (mode === "web") setChosenCaptureId(stored[0]?.id ?? null);
         }
       })
       .catch(() => {
@@ -779,7 +803,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       unsubscribe();
       unsubscribeExclusions?.();
     };
-  }, [adapter]);
+  }, [adapter, mode]);
 
   const visibleCaptures = sampleMode ? sampleCaptures : captures;
   const selectedCapture = visibleCaptures.find((capture) => capture.id === selectedCaptureId);
@@ -787,7 +811,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const savedScopedCaptures = useMemo(() => scopeSavedCaptures(visibleCaptures, savedOnly), [visibleCaptures, savedOnly]);
   const sourceCapture = savedScopedCaptures.find((capture) => capture.id === selectedCaptureId);
   const sourceOptions = savedOnly ? savedScopedCaptures.filter((capture) => capture.resources.length > 0) : savedScopedCaptures;
-  const scopedCaptures = selectedCapture ? savedScopedCaptures.filter((capture) => capture.id === selectedCapture.id) : savedScopedCaptures;
+  const scopedCaptures = currentPageNeedsScan ? [] : selectedCapture ? savedScopedCaptures.filter((capture) => capture.id === selectedCapture.id) : savedScopedCaptures;
   const allPageResourceCount = useMemo(() => flattenResources(savedScopedCaptures).length, [savedScopedCaptures]);
   const savedResourceCount = useMemo(() => flattenResources(visibleCaptures).filter((resource) => resource.saved).length, [visibleCaptures]);
   const allResources = useMemo(() => flattenResources(scopedCaptures), [scopedCaptures]);
@@ -825,6 +849,16 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const selectedIcons = selectedItems.some(item => item.kind === "icon");
   const selectedImages = selectedItems.some(item => item.kind === "image");
   const allVisibleSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedKeys.has(selectionKey(item)));
+
+  useEffect(() => {
+    const bar = bulkSelectionRef.current;
+    if (!bar) return;
+    const measure = () => shellRef.current?.style.setProperty("--bulk-selection-height", `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => { observer.disconnect(); shellRef.current?.style.removeProperty("--bulk-selection-height"); };
+  }, [selectedItems.length > 0]);
 
   const toggleSelection = (item: DisplayItem) => {
     setSelectedKeys((current) => {
@@ -886,9 +920,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
   useEffect(() => {
     if (selectedCaptureId && !visibleCaptures.some((capture) => capture.id === selectedCaptureId)) {
-      setSelectedCaptureId(visibleCaptures[0]?.id ?? null);
+      if (mode === "extension") {
+        setSourceOverrideKey(null);
+        setChosenCaptureId(null);
+      } else setChosenCaptureId(visibleCaptures[0]?.id ?? null);
     }
-  }, [selectedCaptureId, visibleCaptures]);
+  }, [mode, selectedCaptureId, visibleCaptures]);
 
   useEffect(() => {
     if (!openActionMenuId) return;
@@ -994,10 +1031,10 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
     if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
-      const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved"] as const;
+      const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved", "identityUrl"] as const;
       if (savedCapture?.resources.length === existing.resources.length && savedCapture.resources.every((resource, index) => {
         const old = existing.resources[index];
-        return fields.every(field => old[field] === resource[field]);
+        return fields.every(field => old[field] === resource[field]) && JSON.stringify(old.variantUrls ?? []) === JSON.stringify(resource.variantUrls ?? []);
       })) return { captures: previous, exclusions, savedCapture: existing };
     }
     return { captures: next, exclusions, savedCapture };
@@ -1012,7 +1049,17 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     setBusy(true);
     setNotice("");
     try {
+      // Start the optional site request directly from the Scan button's click.
+      // Chrome does not grant activeTab when a side-panel button is clicked.
+      const requestedPage = activePage.page;
+      const accessRequest = adapter.requestScanAccess?.(requestedPage);
+      if (accessRequest && !await accessRequest) {
+        throw new Error("Allow access to this website to scan it. Choose Scan page again to retry.");
+      }
       const startedPage = await activePage.beginScan();
+      if (requestedPage.tabId !== startedPage?.tabId || requestedPage.url !== startedPage?.url || requestedPage.revision !== startedPage?.revision) {
+        throw new Error("The active page changed. Choose Scan page on the current tab again.");
+      }
       await previousAutomaticTask?.catch(() => undefined);
       if (sequence !== captureSequenceRef.current) return;
       const capture = await adapter.captureCurrentPage(startedPage);
@@ -1093,7 +1140,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
     const downloadUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = downloadUrl;
-    anchor.download = `allhere-library-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `stashwell-library-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1_000);
     setNotice("Your library archive has been downloaded.");
@@ -1240,12 +1287,12 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
         filename: (extension?: string, sourceFilename?: string) => filenameForResource(item, extension, sourceFilename),
       })), (processed, total) => setBulkProgress(`Preparing ${processed} of ${total}`), downloadFormats);
       const suffix = selectedCapture?.hostname.replace(/[^a-z0-9.-]+/gi, "-") || "resources";
-      const filename = `allhere-${suffix}-${new Date().toISOString().slice(0, 10)}.zip`;
+      const filename = `stashwell-${suffix}-${new Date().toISOString().slice(0, 10)}.zip`;
       const objectUrl = URL.createObjectURL(result.blob);
       if (mode === "extension") {
         try { await downloads.start({ url: objectUrl, kind: "other", title: filename, filename }); }
         finally { window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000); }
-        setNotice(result.skipped ? `${result.included} resources included; ${result.skipped} skipped. See allhere-skipped.txt inside the ZIP.` : "");
+        setNotice(result.skipped ? `${result.included} resources included; ${result.skipped} skipped. See stashwell-skipped.txt inside the ZIP.` : "");
         return;
       }
       const anchor = document.createElement("a");
@@ -1256,7 +1303,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
       setNotice(result.skipped
-        ? `Downloading ${filename}: ${result.included} included, ${result.skipped} skipped. See allhere-skipped.txt inside the ZIP.`
+        ? `Downloading ${filename}: ${result.included} included, ${result.skipped} skipped. See stashwell-skipped.txt inside the ZIP.`
         : `Downloading ${filename} with ${countLabel(result.included, "resource")}.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The selected resources could not be added to a ZIP.");
@@ -1414,6 +1461,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   const openLibrary = () => {
     setManagementOpen(false);
     setSavedOnly(false);
+    if (mode === "extension") setSelectedCaptureId(null);
     selectCategory("all");
     setQuery("");
   };
@@ -1464,7 +1512,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
   const activeCount = totalCounts[category];
   const title = categoryItems.find((item) => item.id === category)?.label ?? "All resources";
-  const headingTitle = savedOnly ? category === "all" ? "Saved items" : `Saved ${title.toLowerCase()}` : category === "all" ? selectedCapture?.pageTitle || "My library" : title;
+  const headingTitle = savedOnly ? category === "all" ? "Saved items" : `Saved ${title.toLowerCase()}` : category === "all" ? currentPageNeedsScan ? activePage.page.title || "Current page" : selectedCapture?.pageTitle || "My library" : title;
   const canExport = captures.length > 0 && !sampleMode;
   const activeView = category === "links" ? "list" : category === "all" ? "grid" : view;
 
@@ -1555,7 +1603,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
   };
 
   return (
-    <div ref={shellRef} className={`allhere-shell allhere-shell--${mode}${selectedItems.length ? " allhere-shell--selecting" : ""}${downloads.jobs.length ? " allhere-shell--downloading" : ""}`}>
+    <div ref={shellRef} className={`stashwell-shell stashwell-shell--${mode}${selectedItems.length ? " stashwell-shell--selecting" : ""}${downloads.jobs.length ? " stashwell-shell--downloading" : ""}`}>
       <header ref={topbarRef} className="topbar">
         <div className="topbar__brand-cluster">
           <button
@@ -1567,11 +1615,11 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
           >
             {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Allhere library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
+          <a className="brand" href={mode === "web" ? "/" : "#library"} aria-label="Stashwell library home" onClick={(event) => { event.preventDefault(); openLibrary(); }}>
             <span className="brand__mark" aria-hidden="true">
-              <img src="/icons/allhere.svg" alt="" />
+              <img src="/icons/stashwell.svg" alt="" />
             </span>
-            <span className="brand__word">allhere</span>
+            <span className="brand__word">Stashwell</span>
           </a>
         </div>
 
@@ -1601,8 +1649,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
               type="button" aria-label="Scan this page"
               aria-describedby={!managementOpen ? "scan-update-hint" : undefined}
               data-scan-state={busy ? "scanning" : needsScan ? "needed" : "ready"}
-              title={autoUpdates.authorized ? "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Allhere is open. Click the toolbar icon first if access is needed."}
-              onClick={() => void handleCapture()} disabled={busy || !loaded}
+              title={autoUpdates.authorized ? "Refresh this tab now. Automatic updates are enabled." : "Scan this tab and keep its resources updated while Stashwell is open. Chrome may ask for access to this website."}
+              onClick={() => void handleCapture()} disabled={busy || !loaded || activePage.page.loading || activePage.page.tabId === undefined}
             >
               {busy ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <TabFavicon key={`${activePage.page.tabId}:${activePage.page.revision}`} url={activePage.page.faviconUrl} />}
               <span>{busy ? "Scanning…" : needsScan ? "Scan page" : "Scan again"}</span>
@@ -1769,7 +1817,9 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                 {sampleMode
                   ? "A sample workspace with example page resources."
                   : loaded
-                    ? selectedCapture
+                    ? currentPageNeedsScan
+                      ? "Not scanned yet"
+                      : selectedCapture
                       ? `${selectedCapture.hostname} · ${countLabel(allResources.length, savedOnly ? "saved resource" : "resource")}`
                       : `${countLabel(sourceOptions.length, "page")} · ${countLabel(allResources.length, savedOnly ? "saved resource" : "resource")}`
                     : "Loading your library…"}
@@ -1781,7 +1831,9 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                 onClick={() => {
                   const showSample = !sampleMode;
                   setSampleMode(showSample);
-                  setSelectedCaptureId(showSample ? null : captures[0]?.id ?? null);
+                  if (showSample) setSelectedCaptureId(null);
+                  else if (mode === "extension") { setSourceOverrideKey(null); setChosenCaptureId(null); }
+                  else setChosenCaptureId(captures[0]?.id ?? null);
                   setSelected(null);
                   setQuery("");
                 }}
@@ -1812,7 +1864,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           {mode === "extension" && (
             <div className="page-scope">
-              <span className="page-scope__label">Source page <span id="scan-update-hint" title="On each new tab, click Allhere's toolbar icon, then Scan page. Scanning enables automatic updates while this tab is active and Allhere is visible. Close Allhere to stop automatic updates.">{autoUpdates.authorized ? "Toolbar icon first, then Scan page" : "Scan enables auto-updates"}</span></span>
+              <span className="page-scope__label">Source page <span id="scan-update-hint" title="Choose Scan page on each new tab. Chrome may ask for website access. Scanning enables automatic updates while this tab is active and Stashwell is visible. Close Stashwell to stop automatic updates.">Scan enables auto-updates</span></span>
               <div className={`page-scope__control${sourcePageMenuOpen ? " page-scope__control--open" : ""}`} ref={sourcePageMenuRef}>
                 <button
                   className="page-scope__trigger"
@@ -1823,21 +1875,29 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                   aria-controls="source-page-menu"
                   onClick={() => setSourcePageMenuOpen((open) => !open)}
                 >
-                  <SourcePageMark capture={sourceCapture} allPages={!sourceCapture} />
+                  <SourcePageMark capture={sourceCapture} allPages={!sourceCapture && !currentPageNeedsScan} />
                   <span className="page-scope__selection">
-                    <strong>{sourceCapture?.pageTitle || sourceCapture?.hostname || "All pages"}</strong>
-                    <small>{sourceCapture?.hostname || `${sourceOptions.length} ${savedOnly ? "pages with saved items" : "captured pages"}`}</small>
+                    <strong>{sourceCapture?.pageTitle || sourceCapture?.hostname || (currentPageNeedsScan ? activePage.page.title || "Current tab" : "All pages")}</strong>
+                    <small>{sourceCapture?.hostname || (currentPageNeedsScan ? activePage.page.url ? hostnameFor(activePage.page.url) : "Not scanned yet" : `${sourceOptions.length} ${savedOnly ? "pages with saved items" : "captured pages"}`)}</small>
                   </span>
-                  <span className="page-scope__count">{sourceCapture?.resources.length ?? allPageResourceCount}</span>
+                  <span className="page-scope__count">{currentPageNeedsScan ? 0 : sourceCapture?.resources.length ?? allPageResourceCount}</span>
                   <ChevronDown size={17} aria-hidden="true" />
                 </button>
                 {sourcePageMenuOpen && (
                   <div className="page-scope__menu" id="source-page-menu" role="menu" aria-label="Choose a source page">
+                    {mode === "extension" && !activeCapture && activePage.page.url && (
+                      <button className={`page-scope__option${currentPageNeedsScan ? " page-scope__option--active" : ""}`} type="button" role="menuitemradio" aria-checked={currentPageNeedsScan}
+                        onClick={() => { setSourceOverrideKey(null); setChosenCaptureId(null); setSavedOnly(false); setCategory("all"); setQuery(""); setSelected(null); setSourcePageMenuOpen(false); }}>
+                        <SourcePageMark />
+                        <span className="page-scope__option-copy"><strong>Current tab</strong><small>{activePage.page.url}</small></span>
+                        <span className="page-scope__count">0</span>
+                      </button>
+                    )}
                     <button
-                      className={`page-scope__option${sourceCapture ? "" : " page-scope__option--active"}`}
+                      className={`page-scope__option${sourceCapture || currentPageNeedsScan ? "" : " page-scope__option--active"}`}
                       type="button"
                       role="menuitemradio"
-                      aria-checked={!sourceCapture}
+                      aria-checked={!sourceCapture && !currentPageNeedsScan}
                       onClick={() => selectSourcePage(null)}
                     >
                       <SourcePageMark allPages />
@@ -1906,7 +1966,7 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
 
           <div className={`library-layout${selected && mode === "web" ? " library-layout--details" : ""}`}>
             <section className="resource-section" aria-label={title}>
-              {!loaded ? (
+              {!loaded || (mode === "extension" && activePage.page.tabId === undefined) ? (
                 <div className="loading-state"><LoaderCircle className="spin" size={23} /><span>Opening your library…</span></div>
               ) : showAlbums && pageAlbums.length > 0 ? (
                 <div className="resource-albums" aria-label="Resource albums">
@@ -1925,17 +1985,17 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
                     <p>Try another title, website, or resource type.</p>
                     <button className="button button--secondary" onClick={() => setQuery("")}>Clear search</button>
                   </div>
-                ) : captures.length === 0 && !sampleMode ? (
+                ) : currentPageNeedsScan || captures.length === 0 && !sampleMode ? (
                   <div className="empty-state">
                     <div className="empty-state__mark"><ImageIcon size={25} /><Link2 size={18} /></div>
-                    <h2>Your library starts with a page</h2>
+                    <h2>{captures.length === 0 ? "Your library starts with a page" : "Scan this page to see its resources"}</h2>
                     <p>
                       {mode === "extension"
-                        ? "Click Allhere's toolbar icon on this tab, then choose Scan page to collect images, icons, fonts, links, media, and files. This also starts automatic updates for this tab while the panel is open. Close Allhere to stop them."
+                        ? "Choose Scan this page to collect images, icons, fonts, links, media, and files from this tab. Chrome may ask for website access. Scanning also starts automatic updates while the panel is open."
                         : "Capture resources in the Chrome side panel, then import your library here."}
                     </p>
                     {mode === "extension" ? (
-                      <button className="button button--primary" onClick={() => void handleCapture()} disabled={busy}>
+                      <button className="button button--primary" onClick={() => void handleCapture()} disabled={busy || activePage.page.loading || activePage.page.tabId === undefined}>
                         {busy ? <LoaderCircle className="spin" size={17} /> : <Activity size={17} />}
                         <span>{busy ? "Scanning…" : "Scan this page"}</span>
                       </button>
@@ -2055,7 +2115,8 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
       {!(selected && mode === "extension") && downloadTray}
 
       {selectedItems.length > 0 && (
-        <div className="bulk-selection" role="region" aria-label="Selected resources" aria-busy={bulkBusy}>
+        <div ref={bulkSelectionRef} className="bulk-selection" role="region" aria-label="Selected resources" aria-busy={bulkBusy}>
+          <div className="bulk-selection__summary">
           <span className="bulk-selection__count" aria-live="polite">
             <strong>{selectedItems.length}</strong> selected
             {bulkBusy && <small>{bulkProgress}</small>}
@@ -2064,6 +2125,24 @@ export function LibraryApp({ adapter, mode }: { adapter: LibraryAdapter; mode: M
             <button type="button" onClick={selectAllVisible} disabled={bulkBusy || allVisibleSelected || !filteredItems.length}>Select all</button>
             <button type="button" onClick={() => { setSelectedKeys(new Set()); setBulkMenuOpen(false); }} disabled={bulkBusy}>Unselect all</button>
           </span>
+          </div>
+          {mode === "extension" && renderSelectionAction?.({
+            items: selectedItems.map(item => ({
+              key: selectionKey(item),
+              identity: item.resource ? resourceIdentity(item.resource) : `page:${item.url}`,
+              kind: item.kind,
+              url: item.url,
+              label: resourceDescription(item),
+              pageUrl: item.capture.pageUrl,
+            })),
+            disabled: bulkBusy || resourceActionId !== null,
+            fileDragProps: resourceDrag.preparedProps,
+            saveFile: async file => {
+              const objectUrl = URL.createObjectURL(file);
+              try { await downloads.start({ url: objectUrl, kind: "other", title: file.name, filename: file.name }); }
+              finally { window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000); }
+            },
+          })}
           <div className="bulk-selection__menu" ref={bulkMenuRef}>
             <button
               className="bulk-selection__menu-trigger"
@@ -2115,6 +2194,7 @@ function ResourceModal(props: Parameters<typeof ResourceDetails>[0]) {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Close preview"]')?.focus({ preventScroll: true });
     return () => {
       dialog.querySelectorAll<HTMLMediaElement>("video, audio").forEach((media) => {
         media.pause();

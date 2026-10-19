@@ -96,13 +96,25 @@ function safeSvgValue(value: string): boolean {
   return !/url\s*\(/i.test(value) || /^url\(\s*["']?#[\w:.-]+["']?\s*\)$/.test(value);
 }
 
-export function sanitizeSvg(markup: string): string {
+export function sanitizeSvg(markup: string, options: { selfContained?: boolean; fragment?: string } = {}): string {
   if (/<!DOCTYPE|<!ENTITY/i.test(markup)) throw new Error("This SVG contains unsupported document declarations.");
   const document = new DOMParser().parseFromString(markup, "image/svg+xml");
   const root = document.documentElement;
   if (document.querySelector("parsererror") || root.localName !== "svg" ||
     (root.namespaceURI && root.namespaceURI !== SVG_NAMESPACE)) {
     throw new Error("The host did not return a valid SVG image. Scan the source page again.");
+  }
+
+  if (options.selfContained) {
+    // Omitting external artwork would create an apparently successful, incomplete
+    // handoff. The user can retry with a self-contained SVG or a raster capture.
+    for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      for (const attribute of Array.from(element.attributes)) {
+        if (attribute.name !== "style" && /url\s*\(/i.test(attribute.value) && !safeSvgValue(attribute.value)) throw new Error("This SVG uses external artwork. Use a self-contained SVG or PNG instead.");
+        if (svgStyles.has(attribute.name) && /var\s*\(/i.test(attribute.value)) throw new Error("This SVG needs website styling. Use a self-contained SVG or PNG instead.");
+      }
+      if (element.localName === "style" && (/@import/i.test(element.textContent || "") || Array.from((element.textContent || "").matchAll(/url\([^)]*\)/gi)).some(match => !safeSvgValue(match[0])))) throw new Error("This SVG uses external styles. Use a self-contained SVG or PNG instead.");
+    }
   }
 
   // Resolve simple class styles into the SVG before removing stylesheet nodes.
@@ -125,6 +137,64 @@ export function sanitizeSvg(markup: string): string {
       }
     } catch { /* Unusable stylesheet rules are omitted from the copied icon. */ }
     style.remove();
+  }
+
+  if (options.fragment) {
+    const target = document.getElementById(options.fragment);
+    if (!target) throw new Error("This SVG’s selected view is missing. Scan the source page again.");
+    if (target.localName === "view") {
+      const viewBox = target.getAttribute("viewBox");
+      if (viewBox) root.setAttribute("viewBox", viewBox);
+      root.removeAttribute("width"); root.removeAttribute("height");
+    } else if (target.localName === "symbol" || target.localName === "svg") {
+      const artwork = target.cloneNode(true) as Element;
+      const definitions = document.createElementNS(SVG_NAMESPACE, "defs");
+      const included = new Set([artwork.id, ...Array.from(artwork.querySelectorAll("[id]"), element => element.id)]);
+      const references = (element: Element): string[] => [element, ...Array.from(element.querySelectorAll("*"))].flatMap(node =>
+        Array.from(node.attributes).flatMap(attribute => {
+          if (attribute.localName === "href" && attribute.value.startsWith("#")) return [attribute.value.slice(1)];
+          return Array.from(attribute.value.matchAll(/url\(\s*["']?#([\w:.-]+)["']?\s*\)/g), match => match[1]!);
+        }),
+      );
+      const pending = references(artwork);
+      const checked = new Set<string>();
+      while (pending.length) {
+        const id = pending.pop()!;
+        if (included.has(id) || checked.has(id)) continue;
+        checked.add(id);
+        const dependency = document.getElementById(id);
+        if (!dependency) continue;
+        const clone = dependency.cloneNode(true) as Element;
+        definitions.appendChild(clone);
+        included.add(id);
+        for (const child of Array.from(clone.querySelectorAll("[id]"))) included.add(child.id);
+        pending.push(...references(clone));
+      }
+      root.replaceChildren(definitions);
+      root.removeAttribute("width"); root.removeAttribute("height");
+      for (const attribute of Array.from(artwork.attributes)) {
+        if (attribute.name !== "id") root.setAttribute(attribute.name, attribute.value);
+      }
+      root.append(...Array.from(artwork.childNodes));
+    }
+  }
+
+  if (options.selfContained) {
+    if (root.querySelector("foreignObject")) throw new Error("This SVG contains embedded web content. Use a standalone SVG or PNG instead.");
+    for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      if (element.hasAttribute("style")) {
+        const declaration = (element as SVGElement).style;
+        for (const property of Array.from(declaration)) {
+          const value = declaration.getPropertyValue(property);
+          if (/url\s*\(/i.test(value) && !safeSvgValue(value) || /var\s*\(/i.test(value)) throw new Error("This SVG needs website styling. Use a self-contained SVG or PNG instead.");
+        }
+      }
+      if (element.localName !== "use" && element.localName !== "image") continue;
+      const href = element.getAttribute("href") || element.getAttributeNS("http://www.w3.org/1999/xlink", "href") || "";
+      const local = /^#[\w:.-]+$/.test(href);
+      const embedded = element.localName === "image" && /^data:image\/(?:png|jpeg|gif|webp|avif|bmp|x-icon|vnd.microsoft.icon);base64,[a-z0-9+/=\s]+$/i.test(href);
+      if ((!local && !embedded) || (local && !document.getElementById(href.slice(1)))) throw new Error("This SVG needs artwork from another file. Use a self-contained SVG or PNG instead.");
+    }
   }
 
   for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
@@ -190,7 +260,7 @@ async function decodedSize(blob: Blob): Promise<{ width: number; height: number 
   }
 }
 
-export async function loadImageFile(rawUrl: string, signal?: AbortSignal): Promise<ImageFile> {
+export async function loadImageFile(rawUrl: string, signal?: AbortSignal, options: { selfContained?: boolean } = {}): Promise<ImageFile> {
   const original = await imageBlob(rawUrl, signal);
   const header = new Uint8Array(await original.slice(0, 512).arrayBuffer());
   const text = new TextDecoder().decode(header);
@@ -207,7 +277,12 @@ export async function loadImageFile(rawUrl: string, signal?: AbortSignal): Promi
   else if (text.slice(4, 8) === "ftyp" && /avif|avis/.test(text.slice(8, 128))) format = { extension: "avif", mimeType: "image/avif" };
   else if (text.trimStart().startsWith("<")) {
     if (original.size > 4 * 1024 * 1024) throw new Error("This SVG is larger than the 4 MB download limit.");
-    svg = sanitizeSvg(await original.text());
+    let fragment: string | undefined;
+    if (options.selfContained && !rawUrl.startsWith("data:")) {
+      try { fragment = decodeURIComponent(new URL(rawUrl).hash.slice(1)) || undefined; }
+      catch { throw new Error("This SVG has an invalid view address. Scan the source page again."); }
+    }
+    svg = sanitizeSvg(await original.text(), { ...options, fragment });
     format = { extension: "svg", mimeType: "image/svg+xml" };
   }
   if (!format) throw new Error("The host returned a page or unsupported file instead of an image. Scan the source page again.");

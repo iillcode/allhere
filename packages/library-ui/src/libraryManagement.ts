@@ -1,5 +1,6 @@
-import { resourceIdentity, type PageCapture } from "@allhere/core";
+import { resourceIdentityKeys, type PageCapture } from "@stashwell/core";
 
+// Retain exclusions made before the Stashwell rename during automatic rescans.
 export const CAPTURE_EXCLUSIONS_KEY = "allhere.capture-exclusions.v1";
 
 export type CaptureExclusions = {
@@ -23,7 +24,7 @@ export function normalizeCaptureExclusions(value: unknown): CaptureExclusions {
 export function filterExcludedCapture(capture: PageCapture, exclusions: CaptureExclusions): PageCapture | null {
   if (exclusions.pages.includes(capture.pageUrl)) return null;
   const excluded = new Set(exclusions.resources[capture.pageUrl] ?? []);
-  return { ...capture, resources: capture.resources.filter((resource) => !excluded.has(resourceIdentity(resource))) };
+  return { ...capture, resources: capture.resources.filter((resource) => !resourceIdentityKeys(resource).some(key => excluded.has(key))) };
 }
 
 export function restorePageCapture(exclusions: CaptureExclusions, pageUrl: string): CaptureExclusions {

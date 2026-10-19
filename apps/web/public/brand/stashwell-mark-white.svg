@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Stashwell">
+  <title>Stashwell</title>
+  <g fill="#ffffff">
+    <path d="M54 8H24L8 24l17.2 12.9 9.6-12.8L24 16h22Z"/>
+    <path d="M54 8H24L8 24l17.2 12.9 9.6-12.8L24 16h22Z" transform="rotate(180 32 32)"/>
+  </g>
+</svg>

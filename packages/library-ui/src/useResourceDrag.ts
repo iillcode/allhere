@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type DragEvent, type HTMLAttributes } from "react";
-import type { ResourceKind } from "@allhere/core";
+import type { ResourceKind } from "@stashwell/core";
 import { loadResourceFile } from "./resourceFiles";
 import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 type Item = { id: string; url: string; kind: ResourceKind | "page" };
 type Entry = { file?: File; pending?: Promise<File>; touched: number; error?: string };
 type Ticket = { file: File; expires: number };
-const prefix = "application/x-allhere-file-";
+const prefix = "application/x-stashwell-file-";
 const chunkBytes = 1024 * 1024;
 type Sender = { id?: string; url?: string; tab?: { id?: number } };
 type Runtime = { id: string; onMessage: {
@@ -29,9 +29,9 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
     // Only a page that receives this random drag capability can request its bytes.
     const listener = (message: Record<string, unknown>, sender: Sender, reply: (data: unknown) => void) => {
       if (!runtime || sender.id !== runtime.id || !sender.tab || !/^https?:\/\//.test(sender.url || "")) return;
-      if (message.type !== "allhere.drag.read") return;
+      if (message.type !== "stashwell.drag.read") return;
       const ticket = tickets.current.get(String(message.token));
-      if (!ticket || ticket.expires < Date.now()) { reply({ error: "This drag expired. Drag the file from Allhere again." }); return; }
+      if (!ticket || ticket.expires < Date.now()) { reply({ error: "This drag expired. Drag the file from Stashwell again." }); return; }
       const file = ticket.file;
       if (message.offset === undefined) { reply({ name: file.name, mime: file.type, size: file.size, chunkBytes }); return; }
       const offset = message.offset;
@@ -105,6 +105,23 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
     catch (error) { if (announce) notify(error instanceof Error ? error.message : "This file could not be prepared."); return; }
   };
 
+  const startFileDrag = (event: DragEvent<HTMLElement>, file: File) => {
+    const token = crypto.randomUUID();
+    if (tickets.current.size >= 4) tickets.current.delete(tickets.current.keys().next().value!);
+    tickets.current.set(token, { file, expires: Date.now() + 120_000 });
+    event.dataTransfer.clearData();
+    event.dataTransfer.items.add(file);
+    if (window.location.protocol === "chrome-extension:") event.dataTransfer.setData(prefix + token, token);
+    event.dataTransfer.effectAllowed = "copy";
+    event.currentTarget.dataset.dragging = "true";
+  };
+
+  const preparedProps = (file: File): HTMLAttributes<HTMLElement> => ({
+    draggable: true,
+    onDragStart: event => startFileDrag(event, file),
+    onDragEnd: event => { delete event.currentTarget.dataset.dragging; },
+  });
+
   const props = (item: T): HTMLAttributes<HTMLElement> => {
     const status = statuses[keyFor(item)];
     const isUrl = item.kind === "link" || item.kind === "page";
@@ -125,18 +142,10 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
         }
         const file = cache.current.get(keyFor(item))?.file;
         if (!file) { event.preventDefault(); void prepare(item, true); return; }
-        const token = crypto.randomUUID();
-        // Keep only a few recent drag capabilities, and never expose source URLs to pages.
-        if (tickets.current.size >= 4) tickets.current.delete(tickets.current.keys().next().value!);
-        tickets.current.set(token, { file, expires: Date.now() + 120_000 });
-        event.dataTransfer.clearData();
-        event.dataTransfer.items.add(file);
-        if (window.location.protocol === "chrome-extension:") event.dataTransfer.setData(prefix + token, token);
-        event.dataTransfer.effectAllowed = "copy";
-        event.currentTarget.dataset.dragging = "true";
+        startFileDrag(event, file);
       },
       onDragEnd: event => { delete event.currentTarget.dataset.dragging; },
     };
   };
-  return { props, prepare, status: (item: T) => statuses[keyFor(item)] };
+  return { props, prepare, preparedProps, status: (item: T) => statuses[keyFor(item)] };
 }

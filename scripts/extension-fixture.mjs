@@ -3,8 +3,8 @@ import { join, resolve } from "node:path";
 
 // Headless browsers cannot click the native toolbar or accept its site dialog.
 // Install unchanged built code with only the requested fixture hosts pre-granted.
-// The production ZIP has activeTab and optional file-host access, no required
-// hosts. Negative scan tests use an ungranted host; file tests check consent.
+// The production ZIP has tabs metadata, activeTab, and optional scan/file host
+// access, with no required hosts. Negative scan tests use an ungranted host.
 export async function localFixtureExtension(profile, urls = ["http://127.0.0.1/"]) {
   const destination = join(profile, "fixture-extension");
   await cp(resolve("apps/extension/out"), destination, { recursive: true });

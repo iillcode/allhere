@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Install Allhere for Chrome",
-  description: "Download the Allhere Chrome extension developer preview and install it in Chrome.",
+  title: "Install Stashwell for Chrome",
+  description: "Download the Stashwell Chrome extension developer preview and install it in Chrome.",
 };
 
 export default function InstallPage() {
@@ -13,9 +13,9 @@ export default function InstallPage() {
       </a>
       <header className="landing-header">
         <div className="landing-container landing-header__inner">
-          <a className="landing-brand" href="/" aria-label="Allhere home">
-            <img src="/icons/allhere.svg" width="34" height="34" alt="" />
-            <span>allhere</span>
+          <a className="landing-brand" href="/" aria-label="Stashwell home">
+            <img src="/icons/stashwell.svg" width="34" height="34" alt="" />
+            <span>Stashwell</span>
           </a>
           <a className="landing-header__action landing-install__home" href="/">
             Back to home
@@ -24,16 +24,16 @@ export default function InstallPage() {
       </header>
       <main className="landing-install" id="main">
         <div className="landing-container landing-install__inner">
-          <h1>Install Allhere in Chrome.</h1>
+          <h1>Install Stashwell in Chrome.</h1>
           <p className="landing-install__lead">
             For Chrome 114 or later. Download the developer preview, unzip it,
-            and add it to Chrome. You can then open Allhere beside supported
+            and add it to Chrome. You can then open Stashwell beside supported
             webpages using the browser toolbar.
           </p>
           <a
             className="landing-button landing-button--primary"
-            href="/downloads/allhere-extension.zip"
-            download="allhere-extension.zip"
+            href="/downloads/stashwell-extension.zip"
+            download="stashwell-extension.zip"
           >
             <span className="landing-chrome-icon" aria-hidden="true" />
             Download for Chrome
@@ -59,7 +59,7 @@ export default function InstallPage() {
             <li>
               <span className="landing-install__number">03</span>
               <div>
-                <h2>Load Allhere</h2>
+                <h2>Load Stashwell</h2>
                 <p>
                   Choose <strong>Load unpacked</strong> and select the extracted
                   folder containing <code>manifest.json</code>.
@@ -69,7 +69,7 @@ export default function InstallPage() {
           </ol>
           <p className="landing-install__footnote">
             This is a manually installed preview. After an update, download the
-            new ZIP, replace the extracted files, and reload Allhere in Chrome.
+            new ZIP, replace the extracted files, and reload Stashwell in Chrome.
           </p>
           <section
             className="landing-install__next"
@@ -77,14 +77,14 @@ export default function InstallPage() {
           >
             <h2 id="install-next-title">Start with the page you are on.</h2>
             <p>
-              Click Allhere’s icon in the Chrome toolbar and choose{" "}
-              <strong>Scan page</strong> to collect the active webpage.
-              On a new tab or after moving to a different site, click the toolbar
-              icon again before scanning. Scanning uses temporary tab access
-              and does not ask for a persistent site grant. File actions may
-              ask for access to the selected resources’ hosts. The first scan also
+              Click Stashwell’s icon in the Chrome toolbar to open the panel,
+              then choose <strong>Scan page</strong> to collect the active webpage.
+              Click the icon again to close the panel.
+              On a new tab, the panel follows the page automatically; choose Scan page
+              to collect it. Chrome may ask for access to that website. File actions
+              may ask for access to the selected resources’ hosts. The first scan also
               enables automatic resource updates for that tab while the panel is
-              visible. Close Allhere to stop updates. An unscanned tab waits
+              visible. Close Stashwell to stop updates. An unscanned tab waits
               for its own manual scan; navigation within an authorized origin
               can update automatically. Hiding or closing the panel ends this authorization. The extension
               library and the web library keep separate local collections; use

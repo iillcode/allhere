@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@allhere/core", "@allhere/library-ui"],
+  transpilePackages: ["@stashwell/core", "@stashwell/library-ui"],
 };
 
 export default nextConfig;

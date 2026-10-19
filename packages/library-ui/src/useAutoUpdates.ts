@@ -82,7 +82,7 @@ export function useAutoUpdates({ adapter, page, suspended, onCapture, onError }:
         return next;
       });
       callbacks.current.onError(/permission|access|toolbar|blocked|restricted/i.test(message)
-        ? "Automatic updates stopped. Click Allhere's toolbar icon on this tab, then choose Scan page."
+        ? "Automatic updates stopped. Choose Scan page and allow website access to restart them."
         : "Automatic updates stopped because this page could not be refreshed. Choose Scan page to restart them.");
     };
     const run = async () => {

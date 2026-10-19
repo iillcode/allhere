@@ -2,7 +2,7 @@ export function ProductDemo() {
   return (
             <div
               className="landing-browser"
-              aria-label="Illustrative source page beside the live Allhere extension demo"
+              aria-label="Illustrative source page beside the live Stashwell extension demo"
             >
               <div className="landing-browser__bar">
                 <span className="landing-browser__dots" aria-hidden="true">
@@ -82,7 +82,7 @@ export function ProductDemo() {
                 </article>
                 <div className="landing-panel">
                   <iframe
-                    title="Interactive Allhere Chrome side panel with sample resources"
+                    title="Interactive Stashwell Chrome side panel with sample resources"
                     src="/demo/extension"
                     loading="eager"
                   />

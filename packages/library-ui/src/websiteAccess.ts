@@ -25,6 +25,6 @@ export function requestWebsiteAccess(origins: string[]): Promise<boolean> {
     return Promise.reject(new Error("Choose a specific website to allow access."));
   }
   const permissions = (globalThis as typeof globalThis & { chrome?: { permissions?: PermissionsApi } }).chrome?.permissions;
-  if (!permissions) return Promise.reject(new Error("Reload the Allhere extension to enable website access."));
+  if (!permissions) return Promise.reject(new Error("Reload the Stashwell extension to enable website access."));
   return permissions.request({ origins: scopedOrigins });
 }

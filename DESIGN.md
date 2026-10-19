@@ -1,5 +1,5 @@
 ---
-name: Allhere Library
+name: Stashwell Library
 description: A calm, familiar resource library for web and browser side-panel use.
 colors:
   primary: "#0b57d0"
@@ -53,6 +53,21 @@ typography:
     fontFamily: "Roboto, Arial, sans-serif"
     fontSize: "10px"
     fontWeight: 400
+  extension-body:
+    fontFamily: "Geist Variable, Segoe UI, Arial, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.5
+  extension-item:
+    fontFamily: "Geist Variable, Segoe UI, Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 500
+    lineHeight: 1.5
+  extension-meta:
+    fontFamily: "Geist Variable, Segoe UI, Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.5
 rounded:
   sm: "8px"
   md: "12px"
@@ -116,13 +131,13 @@ components:
     padding: "0"
 ---
 
-# Design System: Allhere Library
+# Design System: Stashwell Library
 
 ## Overview
 
 **Creative North Star: "The Familiar Library Shelf"**
 
-Allhere uses the visual language of a familiar file library: a white working canvas, a cool-gray navigation rail, fine dividers, and a clear blue accent for the main action and selected item. Resource types and states receive quiet color cues, while compact outlined icons and short labels keep the collection easy to scan.
+Stashwell uses the visual language of a familiar file library: a white working canvas, a cool-gray navigation rail, fine dividers, and a clear blue accent for the main action and selected item. Resource types and states receive quiet color cues, while compact outlined icons and short labels keep the collection easy to scan.
 
 The same visual system works in a full browser window and a narrow side panel. The compact shell keeps the brand, search, collection, and details treatments recognizable while reducing the navigation chrome and spacing. Hierarchy comes from type size and weight, not a separate display face or decorative ornament.
 
@@ -184,11 +199,19 @@ The palette is neutral-first: blue carries primary actions, focus, and selection
 ### Named Rules
 **The Single-Family Rule.** Keep display, body, labels, and metadata in the same sans-serif family; use weight and size to separate roles.
 
+### Extension typography
+
+The installed extension uses bundled **Geist Variable** (Latin subset, with Segoe UI and Arial fallbacks) for the cleaner, ChatGPT-like typography requested for the side panel. Its separate stylesheet, `apps/extension/src/typography.css`, keeps the web library's Roboto system intact. The side-panel scale is 24px collection headings, 22px empty-state headings, a 20px wordmark, 16px section titles and base text, 15px controls and prose, 14px item titles and descriptions, 13px supporting controls and details, and 12px metadata. Body leading is 1.5; descriptions use 1.55 and empty-state prose uses 1.6. Medium and 550 weights establish hierarchy without adding a second family. Rem units respect the browser's default font size, while the bundled face displays with a system fallback during loading.
+
+Keep the 64px header and horizontal resource tabs. Source selectors have a 52px minimum height, dropdown rows accommodate two lines, and image descriptions have a 68px minimum text area. Supporting source labels can wrap in narrow panels. Preview-font samples retain their captured typeface.
+
 ## Layout
 
 The wide library uses a fixed top bar, a left navigation rail, a flexible main area, and an optional right detail pane. The resource grid begins at four columns, drops to three at 1280px, and two at 980px. At 760px the top bar stacks search beneath the brand row and the rail becomes a slide-in drawer; at 440px the interface trims secondary table columns and metadata labels to protect the two-column card grid. The extension shell keeps the rail hidden and uses a compact two-column grid.
 
 Spacing follows a close 4px rhythm, with repeated 8px, 12px, 16px, and 20px gaps and padding. Main content grows with the available width, while cards and detail content keep clear internal padding. Search and category controls can scroll horizontally on narrow screens instead of forcing the whole layout wider.
+
+At 360px and below, the installed extension keeps the 64px header and full Stashwell name at 20px. The mark is fixed at 26px without shrinking, and the brand gap and header column gap reduce to 6px so the name, scan action, and outer-right menu fit together.
 
 ### Public landing and installation
 
@@ -211,7 +234,7 @@ Depth is mostly structural: white cards sit on the white canvas with a fine bord
 
 ## Shapes
 
-The Allhere mark is a bold, freeform lowercase a in Drive blue, with a curved terminal and transparent background. It has no square container in the application, browser toolbar, website, or store artwork. The source SVG generates the PNG icon sizes; the 128px store icon retains a transparent safety margin.
+The installed extension, landing pages, web library, and reusable website brand assets share the approved A2 (Twin fold) S in primary blue (see `colors.primary`): two angular ribbon paths separated by an open diagonal seam. Preserve both paths and the transparent gap, with no surrounding square. Its canonical 64-unit SVG at `apps/extension/public/icons/stashwell.svg` supplies the extension panel header and page favicon; `pnpm generate:extension-icons` derives transparent 16/32/48/128px toolbar and extension-manager icons with a safety margin. `pnpm generate:web-brand` copies A2 into `apps/web/public/icons/stashwell.svg` and regenerates the blue/white SVG and PNG exports in `apps/web/public/brand/` without changing extension or store assets. Website navigation, previews, the closing call to action, setup/legal pages, library/demo surfaces, and favicon use this shared web mark. The reusable brand assets include 512px mark PNGs and a standalone Stashwell wordmark with outlined Geist 600 lettering in Ink (see `colors.text`) so its SVG needs no installed font. White mark and wordmark variants preserve the same geometry for dark backgrounds. The logo PNGs retain transparency; `stashwell-logo-preview.png` alone supplies a white presentation background. Refreshed Chrome Web Store artwork and screenshots use A2 as well; `node scripts/generate-store-assets.mjs` updates only the store assets and provides RGB 1280×800 and 640×400 captures, the 440×280 promo, the current 128px icon, and an artwork ZIP. `pnpm generate:brand` intentionally updates website, extension, and store promotional assets together; use it only for an approved update across those surfaces. In the interface, use the full capitalized name beside the mark and preserve the existing UI font and readable size.
 
 Controls use generous pill silhouettes: the search field is the soft capsule, buttons and navigation items are rounded pills, and filter chips are slightly tighter. Resource cards use a consistent rounded rectangle; fields and metadata boxes use smaller corners. Thin borders define card and field edges, and card artwork clips cleanly to its rounded frame. Focus stays visible as a clear blue outline with a small offset.
 
@@ -219,7 +242,7 @@ Controls use generous pill silhouettes: the search field is the soft capsule, bu
 
 ### Buttons
 
-The extension header stays at its original 64px action row before and after scanning, without an automatic-update status row or Pause/Resume controls. The existing Source page line briefly says Scan enables auto-updates and supplies the scan action's accessible description. Its tooltip and the Scan page tooltip explain that automatic updates run for the active, manually scanned tab while Allhere is visible; closing the panel stops them. The resource tabs stick below the measured header height. Automatic refreshes preserve the collection's selected type, view, bookmarks, and scroll. The header's left inset remains 8px and its menu stays at the outer right edge.
+The extension header stays at its original 64px action row before and after scanning, without an automatic-update status row or Pause/Resume controls. The existing Source page line briefly says Scan enables auto-updates and supplies the scan action's accessible description. Its tooltip and the Scan page tooltip explain that automatic updates run for the active, manually scanned tab while Stashwell is visible; closing the panel stops them. The resource tabs stick below the measured header height. Automatic refreshes preserve the collection's selected type, view, bookmarks, and scroll. The header's left inset remains 8px and its menu stays at the outer right edge.
 
 The extension scan button uses the current tab's favicon on a small white circular plate, with a globe when Chrome withholds it or the icon fails to load. Amber fill and outline pair with **Scan page** when the active tab or document needs a manual scan. A successful scan changes it to blue **Scan again**. Reloads and navigation restore the amber state without triggering capture; switching back to an unchanged scanned tab preserves blue within the open panel session.
 

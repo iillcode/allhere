@@ -1,4 +1,5 @@
 (() => {
+  // Keep persisted jobs and their pending alarm across the Stashwell upgrade.
   const KEY = "allhere.downloads.v1";
   const ALARM = "allhere.downloads.refresh";
   const active = job => ["preparing", "queued", "downloading", "processing", "saving"].includes(job.state);
@@ -70,10 +71,10 @@
   };
   const begin = async job => {
     try {
-      if (!await chrome.permissions.contains({ permissions: ["downloads"] })) throw Error("Reload Allhere on the browser's extensions page to enable downloads.");
+      if (!await chrome.permissions.contains({ permissions: ["downloads"] })) throw Error("Reload Stashwell on the browser's extensions page to enable downloads.");
       const origins = /^https?:/.test(job.url) ? [`${new URL(job.url).protocol}//${new URL(job.url).hostname}/*`] : [];
       if (origins.length && !await chrome.permissions.contains({ origins })) {
-        await update(job.id, { state: "failed", permissionOrigins: origins, error: "Allhere needs website access to download this media. Allow access below, then retry." });
+        await update(job.id, { state: "failed", permissionOrigins: origins, error: "Stashwell needs website access to download this media. Allow access below, then retry." });
         return;
       }
       if (/\.(m3u8|mpd)(?:[?#]|$)/i.test(job.url)) {
@@ -88,7 +89,7 @@
         const current = jobs.find(entry => entry.id === job.id);
         if (!current || !active(current)) return;
         // For remote files, Chrome uses Content-Disposition and the URL to preserve
-        // the source filename. Blob downloads need the name supplied by Allhere.
+        // the source filename. Blob downloads need the name supplied by Stashwell.
         const browserId = await chrome.downloads.download({ url: job.url, ...(!/^https?:/.test(job.url) ? { filename: job.filename } : {}), conflictAction: "uniquify", saveAs: false });
         Object.assign(current, { browserId, state: "downloading", filename: job.filename });
         await write(jobs);
@@ -99,7 +100,7 @@
     if (!input || typeof input.url !== "string") throw Error("Choose a file address to download.");
     const url = safeUrl(input.url);
     if (youtubePage(url)) throw Error("YouTube downloads are not supported. Copy the URL to open the video on YouTube.");
-    const filename = String(input.filename || "allhere-download").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").slice(0, 180);
+    const filename = String(input.filename || "stashwell-download").replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").slice(0, 180);
     const job = { id: crypto.randomUUID(), title: String(input.title || filename).slice(0, 300), url,
       filename, state: fromPanel ? "queued" : "preparing", received: 0, total: 0, createdAt: Date.now(), kind: input.kind };
     await serial(async () => { const jobs = await read(); jobs.unshift(job); await write(jobs); });
@@ -119,8 +120,8 @@
   });
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return;
-    if (!message?.type?.startsWith("allhere.download.")) return;
-    const action = message.type.slice("allhere.download.".length);
+    if (!message?.type?.startsWith("stashwell.download.")) return;
+    const action = message.type.slice("stashwell.download.".length);
     const run = action === "start" ? start(message.input) : action === "register" ? start(message.input, true) : action === "refresh" ? refresh() : action === "cancel" ? cancel(message.id)
       : action === "show" ? chrome.downloads.show(message.browserId)
       : action === "dismiss" ? serial(async () => write((await read()).filter(job => job.id !== message.id || active(job)))) : Promise.reject(Error("Unknown download action."));
@@ -149,7 +150,7 @@
     }
     if (retired.length) await write(jobs.filter(job => !retired.includes(job)));
     const cache = await chrome.storage.session.get(null);
-    const keys = Object.keys(cache).filter(key => key.startsWith("allhere.media."));
+    const keys = Object.keys(cache).filter(key => key.startsWith("stashwell.media."));
     if (keys.length) await chrome.storage.session.remove(keys);
   });
 })();

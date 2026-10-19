@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280" role="img" aria-label="Allhere brand and collected web resources">
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280" role="img" aria-label="Stashwell brand and collected web resources">
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#0647b9"/>
@@ -17,9 +17,14 @@
   <circle cx="438" cy="286" r="158" fill="#3081ec" opacity=".35"/>
   <path d="M0 236c96-50 196-53 298-10s118 32 142 16" fill="none" stroke="#8bc0ff" stroke-opacity=".22" stroke-width="2"/>
 
-  <g id="allhere-mark" transform="translate(39 66) scale(2.35)">
-    <path d="M45 31c0-11.5-7.5-20-18-20S8 19.5 8 31s8.5 21 19 21 18-9.5 18-21V11m0 20v12c0 7 3 10 10 10" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <g id="stashwell-mark" transform="translate(39 66) scale(2.35)">
+  <title>Stashwell</title>
+  <g fill="#fff">
+    <path d="M54 8H24L8 24l17.2 12.9 9.6-12.8L24 16h22Z"/>
+    <path d="M54 8H24L8 24l17.2 12.9 9.6-12.8L24 16h22Z" transform="rotate(180 32 32)"/>
   </g>
+</g>
+  <text x="38" y="251" fill="#fff" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="600" letter-spacing="-.6">Stashwell</text>
 
   <g filter="url(#shadow)">
     <rect x="220" y="38" width="172" height="115" rx="16" fill="#fff"/>
