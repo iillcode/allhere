@@ -7,13 +7,14 @@ import { localFixtureExtension } from "./extension-fixture.mjs";
 
 const width = Number(process.env.STASHWELL_SCREENSHOT_WIDTH ?? 640);
 const height = Number(process.env.STASHWELL_SCREENSHOT_HEIGHT ?? 400);
+const scale = Number(process.env.STASHWELL_SCREENSHOT_SCALE ?? 1);
 const scrollY = Number(process.env.STASHWELL_SCREENSHOT_SCROLL_Y ?? 80);
 const view = process.env.STASHWELL_SCREENSHOT_VIEW ?? "images";
 const source = process.env.STASHWELL_SCREENSHOT_SOURCE ?? "installed";
-if (![[1280, 800], [640, 400]].some(([expectedWidth, expectedHeight]) => width === expectedWidth && height === expectedHeight)) {
+if (![1, 2].includes(scale) || ![[1280, 800], [640, 400]].some(([expectedWidth, expectedHeight]) => width * scale === expectedWidth && height * scale === expectedHeight)) {
   throw new Error("Store screenshots must be 1280x800 or 640x400.");
 }
-const destination = resolve(`docs/chrome-web-store-assets/stashwell-screenshot-${view}${scrollY ? "-scrolled" : ""}-${width}x${height}.png`);
+const destination = resolve(`docs/chrome-web-store-assets/stashwell-screenshot-${view}${scrollY ? "-scrolled" : ""}-${width * scale}x${height * scale}.png`);
 const webUrl = process.env.STASHWELL_WEB_URL ?? "http://127.0.0.1:3002/";
 const port = await new Promise((done) => {
   const server = createServer();
@@ -110,7 +111,7 @@ try {
     await page.send("Page.enable");
     await page.send("Page.addScriptToEvaluateOnNewDocument", { source: "Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});" });
   }
-  await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+  await page.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: scale, mobile: false });
   await page.send("Page.reload", { ignoreCache: true });
   await until(() => page.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "The extension interface did not render.");
   if (source === "installed") await page.evaluate("Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));");
@@ -174,6 +175,8 @@ try {
     await page.evaluate("document.querySelector('.notice [aria-label=\"Dismiss message\"]')?.click()");
     await new Promise((done) => setTimeout(done, 150));
   }
+  await page.evaluate("document.fonts.ready");
+  await until(() => page.evaluate("[...document.querySelectorAll('.resource-art__image')].every(img => img.complete && img.naturalWidth > 0)"), "The visible resource images did not finish loading.");
   const screenshot = await page.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, Buffer.from(screenshot.data, "base64"));

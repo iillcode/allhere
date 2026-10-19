@@ -77,12 +77,12 @@ export default function InstallPage() {
           >
             <h2 id="install-next-title">Start with the page you are on.</h2>
             <p>
-              Click Stashwell’s icon in the Chrome toolbar and choose{" "}
-              <strong>Scan page</strong> to collect the active webpage.
-              On a new tab or after moving to a different site, click the toolbar
-              icon again before scanning. Scanning uses temporary tab access
-              and does not ask for a persistent site grant. File actions may
-              ask for access to the selected resources’ hosts. The first scan also
+              Click Stashwell’s icon in the Chrome toolbar to open the panel,
+              then choose <strong>Scan page</strong> to collect the active webpage.
+              Click the icon again to close the panel.
+              On a new tab, the panel follows the page automatically; choose Scan page
+              to collect it. Chrome may ask for access to that website. File actions
+              may ask for access to the selected resources’ hosts. The first scan also
               enables automatic resource updates for that tab while the panel is
               visible. Close Stashwell to stop updates. An unscanned tab waits
               for its own manual scan; navigation within an authorized origin

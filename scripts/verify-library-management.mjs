@@ -108,6 +108,9 @@ try {
   await until(() => panel.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "Library did not render");
   await panel.evaluate("window.__faviconPermissionRequests=0;const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__faviconPermissionRequests++;return permission(options);}");
   await panel.evaluate(`chrome.storage.local.set({'allhere.library.v1': ${JSON.stringify([capture, other])}, 'allhere.capture-exclusions.v1': {pages:[],resources:{}}})`);
+  await until(() => panel.evaluate("Boolean(document.querySelector('.page-scope__trigger'))"), "Source page control did not render");
+  await panel.evaluate("document.querySelector('.page-scope__trigger').click()");
+  await panel.evaluate("[...document.querySelectorAll('.page-scope__option')].find(button=>button.textContent.includes('All pages')).click()");
   await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Fixture library did not render");
   const click = (selector) => panel.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const menu = async (name) => {
@@ -206,7 +209,8 @@ try {
   await delay(1800);
   assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id)?.resources.some((resource) => resource.label === "Late image"), "Page updates must wait for Scan page");
   assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id).resources.some((resource) => resource.url === base + "/saved-image.svg"), "Background scanning restored a deleted item");
-  assert.ok(await panel.evaluate("document.querySelector('.saved-scope-back') !== null"), "Live scans exited Saved items");
+  await until(() => panel.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Research resources'"), "The panel did not follow the newly active saved page");
+  assert.ok(await panel.evaluate("document.querySelector('.saved-scope-back') === null"), "The new active page kept the previous Saved items scope");
   await panel.send("Page.reload");
   await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Panel did not reopen");
   await delay(1200);
@@ -222,7 +226,7 @@ try {
   await source.evaluate("document.querySelector('#updates').innerHTML='<img src=\"/later-image.svg\" alt=\"Later image\">'");
   await delay(2200);
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "A background scan restored a deleted page");
-  await panel.send("Page.reload"); await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album'))"), "Remaining page did not render"); await delay(1000);
+  await panel.send("Page.reload"); await until(() => panel.evaluate("document.querySelector('.empty-state h2')?.textContent==='Scan this page to see its resources'"), "Deleted active URL did not show its first-scan view"); await delay(1000);
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "Panel reopen restored a deleted page");
   await panel.evaluate("(() => { const button = document.querySelector('.button--scan'); window.__explicitScanState = { sawBusy: button.disabled, finished: false }; const observer = new MutationObserver(() => { if (button.disabled) window.__explicitScanState.sawBusy = true; else if (window.__explicitScanState.sawBusy) { window.__explicitScanState.finished = true; observer.disconnect(); } }); observer.observe(button, { attributes: true, attributeFilter: ['disabled'] }); })()");
   await click(".button--scan");

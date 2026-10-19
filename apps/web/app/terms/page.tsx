@@ -21,7 +21,7 @@ export default function TermsPage() {
         {
           title: "Using Stashwell",
           paragraphs: [
-            "Click Stashwell's toolbar icon on a webpage to give temporary access to that tab, then choose Scan page to start a scan. On a new tab or after navigating to a different site, click the toolbar icon again before scanning. Chrome may ask you to allow access to a resource's original host before a file action. Use Stashwell only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
+            "Click Stashwell's toolbar icon to open the panel, then choose Scan page to scan the active webpage. The panel follows tab changes; choose Scan page on each new tab or site. Chrome may ask you to allow access to that website before scanning or to a resource's original host before a file action. Use Stashwell only with webpages and resources you are authorized to access. The extension can collect only resources available under Chrome's permissions.",
           ],
         },
         {

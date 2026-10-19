@@ -7,9 +7,13 @@
     "build": "turbo build",
     "package:extension": "node scripts/package-extension.mjs",
     "generate:brand": "node scripts/generate-brand-assets.mjs",
+    "generate:extension-icons": "node scripts/generate-brand-assets.mjs --extension-only",
+    "generate:web-brand": "node scripts/generate-brand-assets.mjs --web-only",
     "typecheck": "turbo typecheck",
     "test:capture": "pnpm --filter @stashwell/extension build && node scripts/verify-resource-identity.mjs && node scripts/verify-image-actions.mjs --scan-check && node scripts/verify-auto-updates.mjs && node scripts/verify-library-management.mjs",
     "test:capture:live": "pnpm --filter @stashwell/extension build && node scripts/verify-real-sites.mjs",
+    "test:design-transfer": "pnpm --filter @stashwell/extension build && node scripts/verify-design-transfer.mjs",
+    "test:design-transfer:live": "pnpm --filter @stashwell/extension build && node scripts/verify-design-transfer.mjs --live",
     "clean": "turbo clean"
   },
   "devDependencies": {

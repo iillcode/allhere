@@ -105,6 +105,23 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
     catch (error) { if (announce) notify(error instanceof Error ? error.message : "This file could not be prepared."); return; }
   };
 
+  const startFileDrag = (event: DragEvent<HTMLElement>, file: File) => {
+    const token = crypto.randomUUID();
+    if (tickets.current.size >= 4) tickets.current.delete(tickets.current.keys().next().value!);
+    tickets.current.set(token, { file, expires: Date.now() + 120_000 });
+    event.dataTransfer.clearData();
+    event.dataTransfer.items.add(file);
+    if (window.location.protocol === "chrome-extension:") event.dataTransfer.setData(prefix + token, token);
+    event.dataTransfer.effectAllowed = "copy";
+    event.currentTarget.dataset.dragging = "true";
+  };
+
+  const preparedProps = (file: File): HTMLAttributes<HTMLElement> => ({
+    draggable: true,
+    onDragStart: event => startFileDrag(event, file),
+    onDragEnd: event => { delete event.currentTarget.dataset.dragging; },
+  });
+
   const props = (item: T): HTMLAttributes<HTMLElement> => {
     const status = statuses[keyFor(item)];
     const isUrl = item.kind === "link" || item.kind === "page";
@@ -125,18 +142,10 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
         }
         const file = cache.current.get(keyFor(item))?.file;
         if (!file) { event.preventDefault(); void prepare(item, true); return; }
-        const token = crypto.randomUUID();
-        // Keep only a few recent drag capabilities, and never expose source URLs to pages.
-        if (tickets.current.size >= 4) tickets.current.delete(tickets.current.keys().next().value!);
-        tickets.current.set(token, { file, expires: Date.now() + 120_000 });
-        event.dataTransfer.clearData();
-        event.dataTransfer.items.add(file);
-        if (window.location.protocol === "chrome-extension:") event.dataTransfer.setData(prefix + token, token);
-        event.dataTransfer.effectAllowed = "copy";
-        event.currentTarget.dataset.dragging = "true";
+        startFileDrag(event, file);
       },
       onDragEnd: event => { delete event.currentTarget.dataset.dragging; },
     };
   };
-  return { props, prepare, status: (item: T) => statuses[keyFor(item)] };
+  return { props, prepare, preparedProps, status: (item: T) => statuses[keyFor(item)] };
 }

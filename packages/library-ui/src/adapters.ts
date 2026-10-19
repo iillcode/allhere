@@ -10,6 +10,7 @@ import {
 } from "@stashwell/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
 import { createActivePageObserver, type ActivePage, type ActivePageBrowser } from "./activePage";
+import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
@@ -18,6 +19,7 @@ export type LibraryAdapter = {
   loadExclusions?: () => Promise<CaptureExclusions>;
   subscribeExclusions?: (listener: (exclusions: CaptureExclusions) => void) => () => void;
   captureCurrentPage?: (requestedPage?: ActivePage) => Promise<PageCapture>;
+  requestScanAccess?: (page: ActivePage) => Promise<boolean>;
   getActivePage?: () => Promise<ActivePage>;
   subscribeActivePage?: (listener: (page: ActivePage) => void) => () => void;
   watchPage?: (page: ActivePage, onChange: () => void) => Promise<() => void>;
@@ -185,16 +187,15 @@ export function createExtensionAdapter(): LibraryAdapter {
   const activePage = async () => {
     const api = chromeApi();
     if (!api?.tabs || !api.scripting) throw new Error("Capture is available from the installed Chrome side panel.");
-    const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+    const [tab] = await api.tabs.query({ active: true, currentWindow: true });
     if (typeof tab?.id !== "number" || !tab.url) {
-      throw new Error("Click Stashwell's toolbar icon on this tab, then choose Scan page.");
+      throw new Error("Open a webpage in this tab, then choose Scan page.");
     }
     if (!/^https?:\/\//i.test(tab.url) || /^https?:\/\/(?:chromewebstore\.google\.com\/|chrome\.google\.com\/webstore(?:\/|$))/i.test(tab.url)) {
-      throw new Error("Chrome blocks scanning browser and Store pages. Open a regular webpage, click Stashwell's toolbar icon, then choose Scan page.");
+      throw new Error("Chrome blocks scanning browser and Store pages. Open a regular webpage, then choose Scan page.");
     }
-    // The toolbar action grants temporary activeTab access. Scan page uses
-    // that access (or a host grant already allowed for a file action), without
-    // requesting a persistent site permission or opening a consent prompt.
+    // Scan page uses the website grant requested by its button, or temporary
+    // activeTab access when the toolbar action was invoked on this tab.
     return { api, tab: { ...tab, id: tab.id, url: tab.url } };
   };
 
@@ -210,6 +211,9 @@ export function createExtensionAdapter(): LibraryAdapter {
   return {
     getActivePage: activePages.getActivePage,
     subscribeActivePage: activePages.subscribeActivePage,
+    requestScanAccess: (page) => page.siteAccess || !page.url || !/^https?:\/\//i.test(page.url)
+      ? Promise.resolve(true)
+      : requestWebsiteAccess(websiteOrigins([page.url])),
     watchPage: async (page, onChange) => {
       const api = chromeApi();
       if (!api?.tabs?.connect || !api.scripting || page.tabId === undefined) throw new Error("Automatic updates require the installed extension.");
@@ -298,11 +302,11 @@ export function createExtensionAdapter(): LibraryAdapter {
       const { api, tab } = await activePage();
       const revision = activePages.getRevision(tab.id);
       if (requestedPage && (requestedPage.tabId !== tab.id || requestedPage.url !== tab.url || requestedPage.revision !== revision)) {
-        throw new Error("The active page changed. Click Stashwell's toolbar icon on the page you want to collect, then choose Scan page.");
+        throw new Error("The active page changed. Choose Scan page on the current tab again.");
       }
-      const [requestedTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
+      const [requestedTab] = await api.tabs!.query({ active: true, currentWindow: true });
       if (requestedTab?.id !== tab.id || requestedTab.url !== tab.url || activePages.getRevision(tab.id) !== revision) {
-        throw new Error("The active page changed. Click Stashwell's toolbar icon on the page you want to collect, then choose Scan page.");
+        throw new Error("The active page changed. Choose Scan page on the current tab again.");
       }
 
       let injected: Array<{ frameId?: number; result?: RawPageScan }>;
@@ -317,7 +321,7 @@ export function createExtensionAdapter(): LibraryAdapter {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (/cannot access contents|permission|restricted|chrome:\/\//i.test(message)) {
-          throw new Error("Click Stashwell's toolbar icon on this tab, then choose Scan page. Chrome blocks access to some protected pages.");
+          throw new Error("Allow website access when prompted, then choose Scan page again. Chrome blocks scanning some protected pages.");
         }
         throw new Error(`Could not scan this page${message ? `: ${message}` : ". Try again."}`);
       }
@@ -338,9 +342,9 @@ export function createExtensionAdapter(): LibraryAdapter {
         // Keep the snapshot when a page or frame changes before the optional
         // drag helper can be installed.
       }
-      const [currentTab] = await api.tabs!.query({ active: true, lastFocusedWindow: true });
+      const [currentTab] = await api.tabs!.query({ active: true, currentWindow: true });
       if (currentTab?.id !== tab.id || currentTab.url !== scan.pageUrl || activePages.getRevision(tab.id) !== revision) {
-        throw new Error("The page changed while scanning. Click Stashwell's toolbar icon on the current tab, then choose Scan page.");
+        throw new Error("The page changed while scanning. Choose Scan page on the current tab again.");
       }
 
       const capturedAt = new Date().toISOString();

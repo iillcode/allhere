@@ -3,12 +3,13 @@ export type ActivePage = {
   url?: string;
   title?: string;
   faviconUrl?: string;
+  siteAccess?: boolean;
   loading: boolean;
   revision: number;
   accessEpoch: number;
 };
 
-type BrowserTab = { id?: number; url?: string; title?: string; favIconUrl?: string; status?: string };
+type BrowserTab = { id?: number; url?: string; pendingUrl?: string; title?: string; favIconUrl?: string; status?: string; active?: boolean };
 type BrowserEvent<T extends (...args: never[]) => void> = {
   addListener: (listener: T) => void;
   removeListener: (listener: T) => void;
@@ -20,10 +21,9 @@ export type ActivePageBrowser = {
     onUpdated?: BrowserEvent<(tabId: number, change: { status?: string; url?: string; favIconUrl?: string; title?: string }, tab: BrowserTab) => void>;
     onRemoved?: BrowserEvent<(tabId: number) => void>;
   };
-  runtime?: {
-    onMessage?: BrowserEvent<(message: { type?: string }) => void>;
-  };
   permissions?: {
+    contains?: (permissions: { origins: string[] }) => Promise<boolean>;
+    onAdded?: BrowserEvent<() => void>;
     onRemoved?: BrowserEvent<() => void>;
   };
 };
@@ -41,11 +41,20 @@ export function createActivePageObserver(api: () => ActivePageBrowser | undefine
   };
 
   const getActivePage = async (): Promise<ActivePage> => {
-    const [tab] = await api()?.tabs?.query({ active: true, currentWindow: true }) ?? [];
+    const browser = api();
+    const [tab] = await browser?.tabs?.query({ active: true, currentWindow: true }) ?? [];
+    const url = tab?.pendingUrl ?? tab?.url;
     if (typeof tab?.id === "number" && !revisions.has(tab.id)) revisions.set(tab.id, 0);
-    if (typeof tab?.id === "number") trackAccess(tab.id, tab.url);
+    if (typeof tab?.id === "number") trackAccess(tab.id, url);
+    let siteAccess = false;
+    try {
+      if (url && /^https?:\/\//i.test(url)) {
+        const site = new URL(url);
+        siteAccess = await browser?.permissions?.contains?.({ origins: [`${site.protocol}//${site.hostname}/*`] }) ?? false;
+      }
+    } catch { /* Browser and restricted pages do not have optional site access. */ }
     return {
-      tabId: tab?.id, url: tab?.url, title: tab?.title, faviconUrl: tab?.favIconUrl,
+      tabId: tab?.id, url, title: tab?.title, faviconUrl: tab?.favIconUrl, siteAccess,
       loading: tab?.status === "loading", revision: tab?.id === undefined ? 0 : revisions.get(tab.id) ?? 0,
       accessEpoch: tab?.id === undefined ? 0 : accessEpochs.get(tab.id) ?? 0,
     };
@@ -68,22 +77,19 @@ export function createActivePageObserver(api: () => ActivePageBrowser | undefine
     };
     const activated = () => refresh();
     const updated = (tabId: number, change: { status?: string; url?: string; favIconUrl?: string; title?: string }, tab: BrowserTab) => {
-      if (revisions.has(tabId)) trackAccess(tabId, tab.url);
+      if (revisions.has(tabId)) trackAccess(tabId, tab.pendingUrl ?? tab.url);
       // Keep revisions only for tabs the panel has displayed. Reloading a tab
       // must invalidate its scan even when the URL stays exactly the same.
       if (revisions.has(tabId) && (change.status === "loading" || change.url !== undefined)) {
         revisions.set(tabId, (revisions.get(tabId) ?? 0) + 1);
       }
-      if (tabId === activeTabId) refresh();
+      if (tabId === activeTabId || tab.active) refresh();
     };
     const removed = (tabId: number) => {
       revisions.delete(tabId);
       origins.delete(tabId);
       accessEpochs.delete(tabId);
       if (tabId === activeTabId) refresh();
-    };
-    const invoked = (message: { type?: string }) => {
-      if (message?.type === "stashwell.tab.invoked") refresh();
     };
     const visible = () => { if (document.visibilityState === "visible") refresh(); };
     const revoked = () => {
@@ -95,7 +101,7 @@ export function createActivePageObserver(api: () => ActivePageBrowser | undefine
     browser?.tabs?.onActivated?.addListener(activated);
     browser?.tabs?.onUpdated?.addListener(updated);
     browser?.tabs?.onRemoved?.addListener(removed);
-    browser?.runtime?.onMessage?.addListener(invoked);
+    browser?.permissions?.onAdded?.addListener(refresh);
     browser?.permissions?.onRemoved?.addListener(revoked);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", visible);
@@ -105,7 +111,7 @@ export function createActivePageObserver(api: () => ActivePageBrowser | undefine
       browser?.tabs?.onActivated?.removeListener(activated);
       browser?.tabs?.onUpdated?.removeListener(updated);
       browser?.tabs?.onRemoved?.removeListener(removed);
-      browser?.runtime?.onMessage?.removeListener(invoked);
+      browser?.permissions?.onAdded?.removeListener(refresh);
       browser?.permissions?.onRemoved?.removeListener(revoked);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", visible);

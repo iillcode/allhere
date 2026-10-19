@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Stashwell — Web resource library",
-  "version": "0.1.12",
-  "description": "Collect and review images, links, media, and file URLs from the pages you visit.",
+  "name": "Stashwell — Web Media Downloader",
+  "short_name": "Stashwell",
+  "version": "0.1.18",
+  "description": "Download images, SVG icons and media files from web pages. Save links, remove duplicates and export assets to your design apps.",
   "minimum_chrome_version": "114",
   "icons": {
     "16": "icons/stashwell-16.png",
@@ -10,13 +11,13 @@
     "48": "icons/stashwell-48.png",
     "128": "icons/stashwell-128.png"
   },
-  "permissions": ["activeTab", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
+  "permissions": ["activeTab", "tabs", "scripting", "sidePanel", "storage", "unlimitedStorage", "downloads", "alarms"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Open Stashwell for this tab",
+    "default_title": "Open or close Stashwell",
     "default_icon": {
       "16": "icons/stashwell-16.png",
       "32": "icons/stashwell-32.png"

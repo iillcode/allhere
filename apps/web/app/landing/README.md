@@ -8,7 +8,7 @@ The homepage extends the existing Stashwell visual system: self-hosted Roboto, D
 - [Google Drive](https://workspace.google.com/products/drive/): spacious product sections, familiar workspace imagery, clear benefit hierarchy, and accessible primary/secondary actions.
 - [Material motion](https://m3.material.io/styles/motion/easing-and-duration/tokens-specs): reference for restrained state transitions and deceleration. The documentation endpoint requires client-side rendering; no numeric timing claims were extracted from it.
 
-These are design references, not affiliations. Google artwork and site content are not bundled. The existing Stashwell mark, locally bundled Roboto, and existing illustrative studio image are reused.
+These are design references, not affiliations. Google artwork and site content are not bundled. The approved A2 (Twin fold) Stashwell mark, locally bundled Roboto, and existing illustrative studio image are reused.
 
 ## Components and motion
 

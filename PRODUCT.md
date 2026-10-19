@@ -38,7 +38,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 ## Brand Commitments
 
-Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Stashwell. Its blue folded S mark suggests useful finds tucked away for later: a continuous ribbon with two diagonal page ends, a transparent background, and no surrounding square. Use the same mark in the library, extension toolbar, website, and store artwork; capitalize the wordmark as Stashwell.
+Use Google Drive's information architecture and interface system as the user's reference for the library. Match the craft and fit of Google Drive, Chrome's side panel, and Notion. The product is named Stashwell. The installed extension, web library, landing pages, and website brand assets share the approved A2 (Twin fold) S: two angular blue ribbon paths separated by an open diagonal seam, with a transparent background and no surrounding square. Preserve this exact geometry across the extension's panel header, toolbar, extension-manager icons, and page favicon, and the website's navigation, previews, closing call to action, setup/legal pages, and favicon. White exports retain the same geometry for dark backgrounds. Refreshed Chrome Web Store promotional artwork and screenshots also use the approved A2 mark. The mark suggests useful finds tucked away for later; capitalize the wordmark as Stashwell and retain each surface's existing type and layout.
 
 ## Evidence on Hand
 

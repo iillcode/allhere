@@ -23,6 +23,12 @@ importers:
       '@stashwell/library-ui':
         specifier: workspace:*
         version: link:../../packages/library-ui
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
+      lucide-react:
+        specifier: ^0.468.0
+        version: 0.468.0(react@19.3.0)
       react:
         specifier: ^19.2.0
         version: 19.3.0

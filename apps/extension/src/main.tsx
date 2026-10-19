@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { createExtensionAdapter, LibraryApp } from "@stashwell/library-ui";
 import "@stashwell/library-ui/styles.css";
 import "./typography.css";
+import { DesignTransfer } from "./DesignTransfer";
+import "./designTransfer.css";
 
 const rootElement = document.getElementById("root");
 
@@ -12,6 +14,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <LibraryApp adapter={createExtensionAdapter()} mode="extension" />
+    <LibraryApp adapter={createExtensionAdapter()} mode="extension" renderSelectionAction={props => <DesignTransfer {...props} />} />
   </StrictMode>,
 );

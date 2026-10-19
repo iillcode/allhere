@@ -324,7 +324,7 @@ try {
   assert.deepEqual(await read(), beforeReopen, "Reopening the panel must not change the stored collection");
   assert.equal(await panel.evaluate("window.__permissionRequests"), 0);
   const manifest = await panel.evaluate("chrome.runtime.getManifest()");
-  assert.ok(!manifest.permissions.includes("tabs"), "Automatic updates must not add broad tab access");
+  assert.ok(manifest.permissions.includes("tabs"), "The panel must read active-tab metadata after switching tabs");
 
   const orderUrl = base + '/order';
   await source.send('Page.navigate', { url: orderUrl });
