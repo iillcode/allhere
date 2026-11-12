@@ -32,6 +32,10 @@ The product includes a Chrome side panel for working beside the current webpage 
 - Keep captured images in the webpage’s rendered reading order, including CSS backgrounds, shadow roots, and accessible frames. Refresh that order on rescans while preserving saved choices and older collected resources.
 - Preserve source image dimensions in previews and downloads. Offer image format conversion for single downloads and bulk ZIPs.
 - Show resource details and clear security signals, especially for links.
+- In Text, preview the page's computed typography with fixed sample text, instance counts, measured properties, and discovered font file and stylesheet URLs. Keep actual page text and form values out of typography records.
+- Offer a labeled Dev mode switch beside Grid/List without changing the library's theme or resource layout. Info and Colors display optional scan metadata; Components remains disabled for a later update. Switching modes never starts a scan or requests access, and older captures need a rescan.
+- In Dev mode, show public page descriptors and related URLs, evidence-backed technology inferences, DOM counts, computed CSS colors and font families, CSS tokens, viewport, and available navigation timings. Keep the metadata local and preserve it in JSON archives under existing storage keys and scan permissions.
+- Limit Dev inspection to the top document and accessible open shadow roots. Disclose sampling and unreadable CSS, count color uses rather than screen area, and avoid claims of complete technology detection. Do not capture screenshots, image pixels, form values, or private inline script text; social previews use the page-declared image URL with no referrer.
 - Use local heuristics for security flags; do not imply that a heuristic proves a destination is safe.
 - MVP storage is local to each surface. JSON archive import/export is the transfer path between the extension and web library; no cloud sync is specified.
 - Remote security service and cross-device sync are undecided. No external reputation service or sync provider is specified.

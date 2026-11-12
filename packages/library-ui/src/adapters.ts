@@ -4,13 +4,19 @@ import {
   dedupeResources,
   inspectResourceUrl,
   mergeCaptures,
+  normalizeTypography,
+  normalizeDevInspection,
   type CapturedResource,
   type PageCapture,
   type ResourceKind,
+  type TypographyStyle,
+  type TypographyFontSource,
+  type DevInspection,
 } from "@stashwell/core";
 import { CAPTURE_EXCLUSIONS_KEY, normalizeCaptureExclusions, type CaptureExclusions } from "./libraryManagement";
 import { createActivePageObserver, type ActivePage, type ActivePageBrowser } from "./activePage";
 import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
+import { collectDevInspection } from "./devInspectionCapture";
 
 export type LibraryAdapter = {
   load: () => Promise<PageCapture[]>;
@@ -44,6 +50,7 @@ type RawPageScan = {
   pageTitle: string;
   faviconUrl?: string;
   resources: RawResource[];
+  typography?: TypographyStyle[];
   framePath?: number[];
   frames?: Array<{ index: number; position?: RawResource["position"] }>;
 };
@@ -107,11 +114,11 @@ type ChromeLike = ActivePageBrowser & {
     };
   };
   scripting?: {
-    executeScript: (options: {
+    executeScript: <T = RawPageScan>(options: {
       target: { tabId: number; allFrames?: boolean };
-      func?: () => Promise<RawPageScan>;
+      func?: () => Promise<T>;
       files?: string[];
-    }) => Promise<Array<{ frameId?: number; result?: RawPageScan }>>;
+    }) => Promise<Array<{ frameId?: number; result?: T }>>;
   };
 };
 
@@ -136,7 +143,9 @@ function normalizeStored(value: unknown): PageCapture[] {
       return !/^data:embedded|\[inline payload omitted\]$/i.test(resource.url);
     });
 
-    return { ...capture, resources: dedupeResources(resources) };
+    const { devInspection: rawInspection, ...rest } = capture;
+    const devInspection = normalizeDevInspection(rawInspection);
+    return { ...rest, resources: dedupeResources(resources), ...(Array.isArray(capture.typography) ? { typography: normalizeTypography(capture.typography) } : {}), ...(devInspection ? { devInspection } : {}) };
   }), []);
 }
 
@@ -330,6 +339,16 @@ export function createExtensionAdapter(): LibraryAdapter {
       if (!scan || !/^https?:\/\//i.test(scan.pageUrl)) {
         throw new Error("This page cannot be scanned. Open a regular webpage and try again.");
       }
+      // Developer details are a local part of the same explicit/authorized scan.
+      // Entering Dev mode only displays this saved snapshot; it never scans.
+      let devInspection: DevInspection | undefined;
+      try {
+        const [inspection] = await api.scripting!.executeScript<DevInspection>({ target: { tabId: tab.id }, func: collectDevInspection });
+        const normalized = normalizeDevInspection(inspection?.result);
+        if (normalized?.page.url === scan.pageUrl) devInspection = normalized;
+      } catch {
+        // Keep ordinary resources when a page does not expose developer details.
+      }
       // The page helper is needed only for pages the open panel scans. Avoid
       // installing an always-on content script across every browsing tab.
       try {
@@ -366,6 +385,12 @@ export function createExtensionAdapter(): LibraryAdapter {
         security: inspectResourceUrl(resource.url, scan.pageUrl, capturedAt),
       })));
 
+      const typography = new Map<string, TypographyStyle>();
+      for (const style of normalizeTypography(injected.flatMap(frame => frame.result?.typography ?? []))) {
+        const existing = typography.get(style.id);
+        if (existing) existing.instances += style.instances;
+        else typography.set(style.id, style);
+      }
       return {
         id: createId("capture"),
         pageUrl: scan.pageUrl,
@@ -374,6 +399,8 @@ export function createExtensionAdapter(): LibraryAdapter {
         faviconUrl: scan.faviconUrl || tab.favIconUrl,
         capturedAt,
         resources,
+        typography: [...typography.values()],
+        ...(devInspection ? { devInspection } : {}),
       };
     },
   };
@@ -387,6 +414,14 @@ async function collectPageResources(): Promise<RawPageScan> {
   const fontIcons = new Map<string, { glyph: string; label: string; family: string; font: string; color: string; direction: CanvasDirection; size: number; position?: RawResource["position"] }>();
   const pageUrl = window.location.href;
   const pageTitle = document.title || window.location.hostname;
+  const typography = new Map<string, TypographyStyle>();
+  const typographySources: TypographyFontSource[] = [];
+  const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const styleId = (value: string) => {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+    return `type-${(hash >>> 0).toString(36)}`;
+  };
   const shadowRootFor = (element: Element): ShadowRoot | null => {
     if (element.shadowRoot) return element.shadowRoot;
     // The extension API also exposes author-created closed roots. Exclude native
@@ -994,6 +1029,28 @@ async function collectPageResources(): Promise<RawPageScan> {
       const fontFamily = style.fontFamily;
       const isFontIcon = /(?:symbols|icons|font\s*awesome|icomoon|glyphicons|ionicons|remixicon)/i.test(fontFamily) ||
         element.matches('mat-icon[data-mat-icon-type="font"], .material-icons, .material-symbols-outlined, .material-symbols-rounded, .material-symbols-sharp');
+      // Keep computed styles only: never persist the page's text or form values.
+      if (!pseudo && !isFontIcon && element instanceof HTMLElement
+        && !element.closest('script, style, noscript, template, input, textarea, select, [contenteditable]:not([contenteditable="false"]), [aria-hidden="true"], [inert]')
+        && style.display !== "none" && style.visibility === "visible" && Number(style.opacity) !== 0
+        && [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()))
+        && positionFor(element)[0] !== Number.MAX_SAFE_INTEGER) {
+        const semantic = element.closest('h1,h2,h3,h4,h5,h6,[role="heading"],p,button,a,label,li,code,pre,blockquote,small') ?? element;
+        const tag = semantic.localName;
+        const level = /^h[1-6]$/.test(tag) ? tag.slice(1) : semantic.getAttribute("role") === "heading" ? semantic.getAttribute("aria-level") || "2" : undefined;
+        const labels: Record<string, string> = { p: "Paragraph", button: "Button", a: "Link", label: "Label", li: "List item", code: "Code", pre: "Code", blockquote: "Quote", small: "Small text" };
+        const label = level ? `Heading ${level}` : labels[tag] || "Body text";
+        const values = [label, fontFamily, style.fontSize, style.fontWeight, style.fontStyle, style.lineHeight, style.letterSpacing, style.textTransform];
+        const key = JSON.stringify(values);
+        const existing = typography.get(key);
+        if (existing) existing.instances++;
+        else if (typography.size < 400) typography.set(key, {
+          id: styleId(`${pageUrl}:${key}`), label, fontFamily, fontSize: style.fontSize,
+          fontSizeRem: `${Number((parseFloat(style.fontSize) / rootFontSize).toFixed(4))}rem`,
+          fontWeight: style.fontWeight, fontStyle: style.fontStyle, lineHeight: style.lineHeight,
+          letterSpacing: style.letterSpacing, textTransform: style.textTransform, instances: 1, sources: [],
+        });
+      }
       if (isFontIcon && !element.querySelector("svg") && style.display !== "none") {
         const bounds = element.getBoundingClientRect();
         const content = pseudo ? style.content.match(/^(["'])([\s\S]*)\1$/)?.[2] : undefined;
@@ -1092,7 +1149,8 @@ async function collectPageResources(): Promise<RawPageScan> {
     if (root) stylesheets.push(...root.styleSheets, ...root.adoptedStyleSheets);
   });
   const visitedStylesheets = new Set<CSSStyleSheet>();
-  const readStylesheet = (stylesheet: CSSStyleSheet) => {
+  const inaccessibleStylesheets = new Set<string>();
+  const readStylesheet = (stylesheet: CSSStyleSheet, sourceHref = stylesheet.href) => {
     if (visitedStylesheets.has(stylesheet)) return;
     visitedStylesheets.add(stylesheet);
     const readRules = (rules: CSSRuleList) => {
@@ -1110,7 +1168,12 @@ async function collectPageResources(): Promise<RawPageScan> {
         for (const match of face.style.getPropertyValue("src").matchAll(/url\((?:["']?)(.*?)(?:["']?)\)/gi)) {
           if (!match[1]) continue;
           try {
-            const sourceUrl = new URL(match[1], stylesheet.href || baseUrl).href;
+            const sourceUrl = new URL(match[1], sourceHref || baseUrl).href;
+            if (/^https?:\/\//i.test(sourceUrl)) typographySources.push({
+              url: sourceUrl, family, weight: weight || "400", style: style || "normal",
+              unicodeRange: face.style.getPropertyValue("unicode-range") || undefined,
+              stylesheetUrl: sourceHref || undefined,
+            });
             if (wasLoaded(sourceUrl) || document.fonts.check(`16px "${family.replaceAll('"', '\\"')}"`)) {
               fontFaceMetadata.set(sourceUrl, label);
               add("font", sourceUrl, label, { mimeType: fontMimeTypes[new URL(sourceUrl).pathname.split(".").pop() || ""] });
@@ -1122,10 +1185,45 @@ async function collectPageResources(): Promise<RawPageScan> {
       });
     };
     try { readRules(stylesheet.cssRules); } catch {
-      // Cross-origin stylesheets do not expose their rules to page scripts.
+      if (sourceHref && /^https?:\/\//i.test(sourceHref)) inaccessibleStylesheets.add(sourceHref);
     }
   };
-  stylesheets.forEach(readStylesheet);
+  stylesheets.forEach(stylesheet => readStylesheet(stylesheet));
+  // A CDN can allow CORS fetches while its link sheet still blocks CSSOM access.
+  // Read only already-linked stylesheets, with no credentials or permission prompt.
+  const stylesheetQueue = [...inaccessibleStylesheets].sort((left, right) =>
+    Number(/font|typekit|typography/i.test(right)) - Number(/font|typekit|typography/i.test(left))).slice(0, 12);
+  const fetchedStylesheets = new Map<string, { sheet: CSSStyleSheet; href: string }>();
+  let stylesheetIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(4, stylesheetQueue.length) }, async () => {
+    while (stylesheetIndex < stylesheetQueue.length) {
+      const url = stylesheetQueue[stylesheetIndex++];
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 2000);
+      try {
+        const response = await fetch(url, { credentials: "omit", cache: "force-cache", signal: controller.signal, referrerPolicy: "no-referrer" });
+        if (!response.ok || !response.body || Number(response.headers.get("content-length") ?? 0) > 1024 * 1024) continue;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let css = "", bytes = 0;
+        while (true) {
+          const chunk = await reader.read(); if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > 1024 * 1024) { await reader.cancel(); break; }
+          css += decoder.decode(chunk.value, { stream: true });
+        }
+        if (bytes > 1024 * 1024) continue;
+        const parsed = new CSSStyleSheet(); parsed.replaceSync(css + decoder.decode());
+        fetchedStylesheets.set(url, { sheet: parsed, href: response.url || url });
+      } catch { /* An inaccessible font stylesheet does not block the scan. */ }
+      finally { window.clearTimeout(timer); }
+    }
+  }));
+  // Network completion order must not reorder stored resources on each refresh.
+  for (const url of stylesheetQueue) {
+    const fetched = fetchedStylesheets.get(url);
+    if (fetched) readStylesheet(fetched.sheet, fetched.href);
+  }
 
   performance.getEntriesByType("resource").forEach((entry) => {
     const resource = entry as PerformanceResourceTiming & { responseStatus?: number };
@@ -1263,5 +1361,11 @@ async function collectPageResources(): Promise<RawPageScan> {
     }
   }
 
-  return { pageUrl, pageTitle, faviconUrl, resources, framePath, frames };
+  for (const entry of typography.values()) {
+    const families = entry.fontFamily.split(",").map(family => family.trim().replace(/^["']|["']$/g, "").toLowerCase());
+    const matching = typographySources.filter(source => families.includes(source.family.toLowerCase()));
+    entry.sources = [...new Map(matching.map(source => [JSON.stringify(source), source])).values()]
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  }
+  return { pageUrl, pageTitle, faviconUrl, resources, typography: [...typography.values()], framePath, frames };
 }

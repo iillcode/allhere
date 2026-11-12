@@ -1,3 +1,7 @@
+import { normalizeDevInspection, type DevInspection } from "./devInspection.ts";
+export { normalizeDevInspection, selectMostUsedDevColors } from "./devInspection.ts";
+export type { DevInspection, DevColor } from "./devInspection.ts";
+
 export type ResourceKind =
   | "image"
   | "icon"
@@ -49,6 +53,68 @@ export type CapturedResource = {
   security: ResourceSecurity;
 };
 
+export type TypographyFontSource = {
+  url: string;
+  family: string;
+  weight: string;
+  style: string;
+  unicodeRange?: string;
+  stylesheetUrl?: string;
+};
+
+export type TypographyStyle = {
+  id: string;
+  label: string;
+  fontFamily: string;
+  fontSize: string;
+  fontSizeRem: string;
+  fontWeight: string;
+  fontStyle: string;
+  lineHeight: string;
+  letterSpacing: string;
+  textTransform: string;
+  instances: number;
+  sources: TypographyFontSource[];
+};
+
+/** Optional metadata keeps old libraries and version-1 archives compatible. */
+export function normalizeTypography(value: unknown): TypographyStyle[] {
+  if (!Array.isArray(value)) return [];
+  const cssValue = (value: unknown, limit = 500): value is string => typeof value === "string"
+    && value.length > 0 && value.length <= limit && !/[;{}\r\n\u0000]/.test(value);
+  const safeSource = (value: unknown): value is string => {
+    if (typeof value !== "string" || value.length > 8000) return false;
+    try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password; }
+    catch { return false; }
+  };
+  return value.slice(0, 400).flatMap(entry => {
+    if (!entry || typeof entry !== "object") return [];
+    const style = entry as Partial<TypographyStyle>;
+    if (!cssValue(style.id, 180) || !cssValue(style.label, 100) || !cssValue(style.fontFamily)
+      || !cssValue(style.fontSize) || !/^\d+(?:\.\d+)?px$/.test(style.fontSize)
+      || !cssValue(style.fontWeight) || !/^(?:normal|bold|[1-9]\d{0,2}|1000)$/.test(style.fontWeight)
+      || !cssValue(style.fontStyle) || !/^(?:normal|italic|oblique(?: -?\d+(?:\.\d+)?deg)?)$/.test(style.fontStyle)
+      || !cssValue(style.lineHeight) || !/^(?:normal|\d+(?:\.\d+)?px)$/.test(style.lineHeight)
+      || !cssValue(style.letterSpacing) || !/^(?:normal|-?\d+(?:\.\d+)?px)$/.test(style.letterSpacing)) return [];
+    return [{
+      id: style.id, label: style.label, fontFamily: style.fontFamily, fontSize: style.fontSize,
+      fontSizeRem: typeof style.fontSizeRem === "string" && /^\d+(?:\.\d+)?rem$/.test(style.fontSizeRem) ? style.fontSizeRem : "",
+      fontWeight: style.fontWeight, fontStyle: style.fontStyle, lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
+      textTransform: typeof style.textTransform === "string" && /^(?:none|capitalize|uppercase|lowercase|full-width|full-size-kana|math-auto)$/.test(style.textTransform) ? style.textTransform : "none",
+      instances: Math.min(1_000_000, Math.max(1, Math.floor(Number(style.instances) || 1))),
+      sources: Array.isArray(style.sources) ? style.sources.slice(0, 40).flatMap(source => {
+        if (!source || !safeSource(source.url) || !cssValue(source.family) || !cssValue(source.weight)
+          || !/^(?:normal|bold|[1-9]\d{0,2}|1000)(?: (?:[1-9]\d{0,2}|1000))?$/.test(source.weight)
+          || !cssValue(source.style) || !/^(?:normal|italic|oblique(?: -?\d+(?:\.\d+)?deg(?: -?\d+(?:\.\d+)?deg)?)?)$/.test(source.style)) return [];
+        return [{ url: source.url, family: source.family, weight: source.weight, style: source.style,
+          ...(typeof source.unicodeRange === "string" && /^[uU+\da-fA-F?,\s-]{1,1500}$/.test(source.unicodeRange) ? { unicodeRange: source.unicodeRange } : {}),
+          ...(safeSource(source.stylesheetUrl) ? { stylesheetUrl: source.stylesheetUrl } : {}),
+        }];
+      }) : [],
+    }];
+  });
+}
+
 export type PageCapture = {
   id: string;
   pageUrl: string;
@@ -57,6 +123,8 @@ export type PageCapture = {
   faviconUrl?: string;
   capturedAt: string;
   resources: CapturedResource[];
+  typography?: TypographyStyle[];
+  devInspection?: DevInspection;
 };
 
 export type LibraryArchive = {
@@ -397,6 +465,7 @@ export function parseArchive(value: unknown): LibraryArchive {
         })
       : [];
 
+    const devInspection = normalizeDevInspection(candidate.devInspection);
     return [{
       id: typeof candidate.id === "string" && candidate.id.length < 180
         ? candidate.id
@@ -407,6 +476,8 @@ export function parseArchive(value: unknown): LibraryArchive {
       ...(typeof candidate.faviconUrl === "string" ? { faviconUrl: candidate.faviconUrl } : {}),
       capturedAt,
       resources: dedupeResources(resources),
+      ...(Array.isArray(candidate.typography) ? { typography: normalizeTypography(candidate.typography) } : {}),
+      ...(devInspection ? { devInspection } : {}),
     } satisfies PageCapture];
   });
 
@@ -437,6 +508,8 @@ export function mergeCaptures(
     byPage.set(capture.pageUrl, {
       ...capture,
       id: previous?.id ?? capture.id,
+      ...(capture.typography === undefined && previous?.typography ? { typography: previous.typography } : {}),
+      ...(capture.devInspection === undefined && previous?.devInspection ? { devInspection: previous.devInspection } : {}),
       resources: [...ordered, ...resources.filter(resource => !ordered.has(resource))],
     });
   }

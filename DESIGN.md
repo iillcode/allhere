@@ -288,6 +288,22 @@ Image previews use their source pixels, fitted within the existing preview area.
 
 The details pane uses thin dividers to group a resource preview, source and address, local signal explanations, and metadata. The compact layout presents it as a full-height overlay with a dimmed canvas; its sections retain the same white surface and small type hierarchy.
 
+### Text and typography
+
+The Text tab (formerly Fonts) begins with full-width typography cards, followed by the existing font-file grid/list. Cards group visible text styles by semantic role and computed font properties, showing a fixed AaBbCcDdEeFfGgHh sample in the captured font and an instance count. Samples scale down to fit a narrow sidebar; a quiet hint distinguishes that presentation from the original measurements. Native Show details disclosures reveal the font stack, px/rem size, weight, style, line height, letter spacing, and text transform. Copy CSS supplies the measured style and a matching discovered @font-face when available. Font file and stylesheet/CDN URLs have independent copy and open actions. System fonts and inaccessible sources have an explicit unavailable-URL message. Typography previews use existing access without prompting, and store computed metadata rather than actual page text. Existing captures acquire these optional details on their next scan; old archives remain compatible.
+
+### Dev mode
+
+The labeled Dev mode switch sits beside the existing Grid/List control and replaces only the category row and its content while active. Info and Colors use the existing blue selection pills; Components is visible but disabled until implemented. Switching back restores the resource category and Grid/List choice. Mode changes do not scan or request permissions, and the mode is not stored across panel sessions. Keep the existing header, page selector, typography, colors, and resource controls intact.
+
+The switch uses a bold label, a pill with a thin 1px outline that is gray when off and green when on, a thicker track with a white thumb, and a green on state.
+
+Info uses the page's real identity and optional page-declared social image, with no dummy screenshot or export/device-preview actions. Its image loads from the original URL with no referrer and disappears on failure. Counts distinguish captured resources, media items, SVG elements, computed CSS colors, and font families. Quiet dividers and native disclosures group technology name/category badges, SEO and social metadata, document/headings, viewport, navigation timing, font families, and reusable source URLs. Copy actions name the actual value being copied. Technology evidence remains stored but is neither displayed nor copied by the technology controls; detections do not certify the complete application stack.
+
+Most used is a compact weighted strip of up to 12 opaque colors, sized by sampled use count with an 8px minimum swatch width. A shared selector merges equal hex values, ranks by count with stable hex ordering for ties, and excludes single-use colors when any repeated colors exist; otherwise it falls back to the highest 12. Info's palette and Colors' palette, list, count, search, and copy actions use this selection. The full captured color metadata remains stored; the collector ranks colors before its 500-color persistence limit. Small HEX/RGB/HSL segmented buttons and local value/property/token search use the app's existing control language. Color rows retain Values & usage disclosures for CSS properties, alternative values, and matching token names; the standalone CSS custom properties section and transparency checkerboard are omitted. Counts describe sampled element uses rather than pixel area; matching tokens describe equal values rather than confirmed variable references.
+
+The saved snapshot retains top-document/open-shadow coverage, sample limits, and unreadable stylesheet counts; explanatory coverage and navigation-timing prose are omitted from the interface. Older captures show a Scan page recovery action instead of invented data. Dev mode captures no screenshot, image pixels, form values, or private inline script text. Its optional records remain local and travel with JSON archives under the existing scan-access model. Narrow layouts wrap URLs and tokens without page overflow; the shared panel inherits Roboto on the web and bundled Geist in the extension.
+
 ## Do's and Don'ts
 
 ### Do:

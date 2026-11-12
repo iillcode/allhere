@@ -2,7 +2,7 @@
 
 ## Release package
 
-Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/stashwell-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.18`; increase it before every later package upload. Upload this package to the existing store item to replace the previous draft. This release uses the extension title Stashwell — Web Media Downloader and feature-focused metadata. It includes the custom application selector, locally bundled destination logos, and refined transfer and preview modals. The installed extension uses the approved A2 (Twin fold) mark in its panel header, toolbar, extension-manager icons, and page favicon, and the website's landing pages, library, favicon, and reusable brand exports share A2; the refreshed store promotional artwork and screenshots use A2 too. Saved libraries and earlier JSON backups remain compatible. The Manage list retains each saved site’s favicon. Older pages without a saved favicon URL try their own site’s /favicon.ico; unavailable icons retain the globe fallback. Icons load using existing access without a permission prompt or third-party lookup service. Existing stored libraries, automatic updates after the first manual scan, webpage image order, and source image dimensions are retained. The update adds the `tabs` permission so the panel follows the active tab.
+Build from the repository root with `pnpm build`, then run `pnpm package:extension`. Upload `apps/web/public/downloads/stashwell-extension.zip`. The ZIP must contain `manifest.json` at its root. The current manifest version is `0.1.19`; increase it before every later package upload. Upload this package to the existing store item to replace the previous draft. This release uses the extension title Stashwell — Web Media Downloader and feature-focused metadata. It includes the custom application selector, locally bundled destination logos, and refined transfer and preview modals. The installed extension uses the approved A2 (Twin fold) mark in its panel header, toolbar, extension-manager icons, and page favicon, and the website's landing pages, library, favicon, and reusable brand exports share A2; the refreshed store promotional artwork and screenshots use A2 too. Saved libraries and earlier JSON backups remain compatible. The Manage list retains each saved site’s favicon. Older pages without a saved favicon URL try their own site’s /favicon.ico; unavailable icons retain the globe fallback. Icons load using existing access without a permission prompt or third-party lookup service. Existing stored libraries, automatic updates after the first manual scan, webpage image order, and source image dimensions are retained. The update adds the `tabs` permission so the panel follows the active tab.
 
 **Privacy-policy URL:** https://allhere-ten.vercel.app/privacy
 
@@ -40,6 +40,8 @@ FEATURES
 - Image downloader: preview webpage images and download them at their source dimensions. Keep the original format or convert locally to PNG, JPEG, or WebP. Download selected images together in a ZIP.
 - Icon extractor: collect accessible SVG icons, inline artwork, and icon-font previews. Download supported icons as SVG or a raster image format; artwork that starts as a raster stays raster.
 - Media and file downloads: find direct video, audio, font, and downloadable file URLs exposed by the page. Preview supported media before saving.
+- Typography previews: browse text-style samples with instance counts and computed font details. Copy ready-to-use CSS and discovered font file or stylesheet/CDN URLs. No actual page text is stored in typography records. Existing font-file downloads remain available in Text.
+- Dev mode: inspect public page metadata and related URLs, technology name/category badges, document counts, font families, and available viewport/navigation measurements. Explore most-used opaque CSS colors, compact palettes, property/token details, and copyable HEX/RGB/HSL or palette CSS. The switch beside Grid/List opens Info and Colors without starting a scan; Components is disabled and reserved for a later update. Older captures need a rescan.
 - Fewer duplicates: merge repeated resource entries and declared image variants while retaining source references. Prepared design sets also remove byte-identical duplicates.
 - Design app exports: select images and icons, prepare SVG and PNG files with optional sizing, padding, and backgrounds, then copy or download the set. Destination presets include Figma, Penpot, Sketch, Canva, Adobe Illustrator, Adobe Photoshop, Affinity, Photopea, and Inkscape. Paste or import the prepared assets into your chosen app; drag individual files into supported web upload areas.
 - Saved links and assets: bookmark useful resources and browse saved items across captured pages. Filter your collection into Images, Icons, Fonts, Video & audio, Links, and Files.
@@ -57,11 +59,17 @@ Stashwell collects resources the browser can access on the scanned page. Direct 
 
 Stashwell stores page addresses, resource details, selected previews, and download status locally in Chrome's extension storage. It does not sync your library to a Stashwell account or send it to a Stashwell analytics service. Opening previews or downloading files may contact the resources' original hosts. Copying or exporting a prepared set, exporting a JSON archive, or dragging a chosen file to a website shares that data only when you take that action. See the published Stashwell privacy policy for details.
 
+Dev inspection metadata is also stored locally and included in JSON library archives. Inspection covers the top document and accessible open shadow roots; the saved snapshot retains sampling limits, unreadable stylesheet counts, and technology evidence without displaying explanatory coverage or evidence text. Color counts describe sampled element uses, not pixel area. Technology detections are inferences and may be incomplete. Dev mode does not capture page screenshots, sample image pixels, or record form values or private inline script text. A social preview is the page-declared image loaded from its original URL with no referrer, not a screenshot. Dev mode adds no website permissions and never scans merely because the switch or a tab is selected.
+
 **Reviewer instructions:** Open a normal HTTP/HTTPS webpage, click Stashwell's toolbar icon, and read the short automatic-update hint in the Source page line (the hint and Scan page tooltips explain its scope). Opening the panel must not scan. Choose Scan page and allow access to the active website if Chrome asks. Add or load resources on that page: its collection updates automatically. Add a second resource and verify that it is collected without another click. Scan again performs an additional manual refresh while automatic updates remain enabled. Switch to a new, unscanned tab: its favicon and first-scan view should replace the old page's data without another toolbar click. It must remain unscanned until Scan page is chosen. A previously scanned tab can resume when active; same-origin navigation can update, while cross-origin navigation ends consent. Click the toolbar icon again to close the panel and stop automatic updates; click it once more to reopen. Reopening requires another manual scan. Manage pauses capture and automatic updates never restore deleted items. Test copying, downloading, and bulk ZIP actions separately; these may request original resource-host access. No account is required.
+
+For Dev mode, use the labeled switch beside Grid/List, then inspect Info and Colors. Verify that toggling the mode and changing its tabs makes no scan or permission request. Check the technology name/category badges and that metadata and URLs correspond to the scanned page. In Colors, confirm the compact weighted palette shows up to 12 most-used opaque colors, omitting rare single-use colors when repeated colors exist; an all-unique page falls back to up to 12. Alpha swatches and a checkerboard must not appear. Try HEX/RGB/HSL, color/property/token search, individual copy, and Copy palette CSS; the list, count, search, and copied output must share the selected palette. Values & usage retains property/token details, while the separate CSS custom properties section is absent. Technology evidence and coverage prose must not appear in the interface. Components must remain disabled. Returning to resource mode retains the earlier category and layout. Export/import a JSON library to verify the full captured inspection metadata survives; an older capture should ask for another manual scan rather than fabricate details.
 
 ## Privacy practices and permission justifications
 
 Verify that `https://allhere-ten.vercel.app/privacy` describes the first manual scan enabling limited automatic updates, the compact scan hint and closing the panel to stop updates, active-tab metadata from the `tabs` permission, temporary toolbar access, and optional scan-site and file-host access. Disclose Website content, Web history for captured source/resource addresses, and User activity for saved choices/download status. Keep the listing, privacy fields, permission justifications, and in-product disclosure consistent; local storage does not mean no user data is handled.
+
+Website content also includes the public SEO/social metadata, document/style counts, inferred technology evidence, CSS colors/tokens/font families, and viewport/navigation measurements collected during an authorized scan for Dev mode. This metadata is retained and exported with the local collection. Showing a page-declared social preview can request its original image host with no referrer, using the existing preview access model. Dev mode does not add a permission or change when a scan is authorized.
 
 | Access | Why Stashwell uses it |
 | --- | --- |
@@ -83,7 +91,7 @@ The production package does not execute remotely hosted code. Its UI JavaScript 
 
 ## Required dashboard entries: ready to paste
 
-These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.18. Each justification below is under 1,000 characters.
+These are developer-dashboard declarations, not manifest fields. The manifest declares permissions; adding justifications to it does not populate the Privacy practices tab. This copy describes package version 0.1.19. Each justification below is under 1,000 characters.
 
 **Single purpose description**
 
@@ -107,7 +115,7 @@ Stashwell uses Chrome's download manager to save files the user chooses. It trac
 
 **scripting justification**
 
-Stashwell inspects resource URLs and metadata after a manual scan and during the automatic updates that action enables, only while the authorized tab is active and the panel is visible. It injects a packaged resource watcher, which disconnects when updates stop, and a packaged file-drop helper for upload fields. Scripts are included in the extension; fetched resources are data, not executed remote code.
+Stashwell inspects resource URLs, public page metadata, document counts and computed CSS after a manual scan and during the automatic updates that action enables, only while the authorized tab is active and the panel is visible. These details support the local library and Dev mode's Info and Colors views. Choosing Dev mode alone never scans. It injects a packaged resource watcher, which disconnects when updates stop, and a packaged file-drop helper for upload fields. Scripts are included in the extension; fetched resources are data, not executed remote code.
 
 **sidePanel justification**
 
@@ -115,7 +123,7 @@ Stashwell displays its resource library in Chrome's side panel so users can brow
 
 **storage justification**
 
-Stashwell stores captured page and resource details, saved-item choices, deletion exclusions, and recent download information locally in the extension. This keeps the library available after the panel closes or the browser restarts.
+Stashwell stores captured page and resource details, optional Dev inspection metadata (public page descriptors and URLs, inferred technology evidence, document/style counts, CSS colors and tokens, font families, viewport and navigation measurements), saved-item choices, deletion exclusions, and recent download information locally in the extension. This keeps the library available after the panel closes or the browser restarts. Users can include the captured inspection details in a JSON library export.
 
 **unlimitedStorage justification**
 
@@ -137,7 +145,7 @@ https://allhere-ten.vercel.app/privacy
 
 **Data usage and certifications**
 
-Disclose Website content (collected resource content and metadata) and Web history (the source page and resource addresses the user chooses to collect). Disclose User activity for locally stored saved-item choices and download actions/status. Do not claim that no user data is handled merely because storage is local. Read the dashboard descriptions and keep the selections consistent with the published privacy policy.
+Disclose Website content (collected resource content and metadata, including public page descriptors, inferred technology evidence, document/style counts, CSS colors/tokens, font families, and viewport/navigation measurements) and Web history (the source page and resource addresses the user chooses to collect). Disclose User activity for locally stored saved-item choices and download actions/status. Do not claim that no user data is handled merely because storage is local. Read the dashboard descriptions and keep the selections consistent with the published privacy policy.
 
 Review all required certification statements and check them when accurate. The current implementation does not sell user data or transfer it outside the allowed functional uses, use it for unrelated purposes, or use it for creditworthiness or lending. These are declarations by the publisher and cannot be supplied through a ZIP.
 

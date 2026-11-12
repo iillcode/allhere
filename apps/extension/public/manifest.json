@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Stashwell — Web Media Downloader",
   "short_name": "Stashwell",
-  "version": "0.1.18",
+  "version": "0.1.24",
   "description": "Download images, SVG icons and media files from web pages. Save links, remove duplicates and export assets to your design apps.",
   "minimum_chrome_version": "114",
   "icons": {

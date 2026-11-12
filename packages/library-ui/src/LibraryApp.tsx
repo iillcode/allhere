@@ -80,6 +80,10 @@ import { useDownloads, youtubeId } from "./downloads";
 import { emptyCaptureExclusions, filterExcludedCapture, restorePageCapture, scopeSavedCaptures, type CaptureExclusions } from "./libraryManagement";
 import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
 import type { RenderSelectionAction } from "./selectionActions";
+import { previewFontFamily } from "./fontPreview";
+import { TypographyList, typographyEntries } from "./TypographyList";
+import { DevModePanel, type DevModeTab } from "./DevModePanel";
+import "./devMode.css";
 
 type Mode = "web" | "extension";
 type Category = "all" | "pages" | "images" | "saved" | "icons" | "fonts" | "links" | "media" | "files";
@@ -103,7 +107,7 @@ const categoryItems: Array<{ id: Category; label: string; Icon: LucideIcon }> = 
   { id: "images", label: "Images", Icon: ImageIcon },
   { id: "saved", label: "Saved items", Icon: Bookmark },
   { id: "icons", label: "Icons", Icon: Shapes },
-  { id: "fonts", label: "Fonts", Icon: TypeIcon },
+  { id: "fonts", label: "Text", Icon: TypeIcon },
   { id: "links", label: "Links", Icon: Link2 },
   { id: "media", label: "Video & audio", Icon: AudioLines },
   { id: "files", label: "Files", Icon: FileText },
@@ -346,77 +350,7 @@ function topRisk(resource: CapturedResource): RiskLevel {
   return "local-only";
 }
 
-const previewFontLoads = new Map<string, Promise<string | undefined>>();
-
-async function fontFileForPreview(url: string): Promise<string> {
-  if (!/\.css(?:$|[?#])/i.test(url) && !/fonts\.googleapis\.com/i.test(url)) return url;
-  const response = await fetch(url, { credentials: "omit" });
-  if (!response.ok) return url;
-  const stylesheet = await response.text();
-  const match = stylesheet.match(/url\(\s*["']?([^"')\s]+)["']?\s*\)/i);
-  return match ? new URL(match[1], url).href : url;
-}
-
-async function verifiedFontBlobUrl(url: string): Promise<string | undefined> {
-  const response = await fetch(url, { credentials: "omit" });
-  if (!response.ok) return undefined;
-  const mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
-  if (/^(?:text\/(?:html|plain|css)|application\/(?:json|xml))$/.test(mime)) return undefined;
-
-  const maxBytes = 8 * 1024 * 1024;
-  if (Number(response.headers.get("content-length") ?? 0) > maxBytes) return undefined;
-  let blob: Blob;
-  if (response.body) {
-    const reader = response.body.getReader();
-    const chunks: ArrayBuffer[] = [];
-    let totalBytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > maxBytes) { await reader.cancel(); return undefined; }
-      chunks.push(Uint8Array.from(value).buffer as ArrayBuffer);
-    }
-    blob = new Blob(chunks, { type: mime || "application/octet-stream" });
-  } else {
-    blob = await response.blob();
-  }
-  if (!blob.size || blob.size > maxBytes) return undefined;
-
-  const header = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
-  const signature = String.fromCharCode(...header.slice(0, 4));
-  const sfnt = header[0] === 0 && header[1] === 1 && header[2] === 0 && header[3] === 0;
-  const eotHeader = new DataView(header.buffer);
-  const eot = header.length >= 12
-    && eotHeader.getUint32(0, true) === blob.size
-    && [0x00010000, 0x00020001, 0x00020002, 0x00020003].includes(eotHeader.getUint32(8, true));
-  if (!["wOFF", "wOF2", "OTTO", "ttcf"].includes(signature) && !sfnt && !eot) return undefined;
-  return URL.createObjectURL(blob);
-}
-
-function previewFontFamily(url: string): Promise<string | undefined> {
-  const existing = previewFontLoads.get(url);
-  if (existing) return existing;
-
-  const family = `StashwellPreview_${previewFontLoads.size}`;
-  const loaded = fontFileForPreview(url)
-    .then(async (fontFile) => {
-      const blobUrl = await verifiedFontBlobUrl(fontFile);
-      if (!blobUrl) return undefined;
-      try {
-        const face = await new FontFace(family, `url(${JSON.stringify(blobUrl)})`).load();
-        document.fonts.add(face);
-        return family;
-      } finally {
-        URL.revokeObjectURL(blobUrl);
-      }
-    })
-    .catch(() => undefined);
-  previewFontLoads.set(url, loaded);
-  return loaded;
-}
-
-function FontPreview({ item }: { item: DisplayItem }) {
+function FontPreview({ item, compact = false }: { item: DisplayItem; compact?: boolean }) {
   const source = safeWebUrl(item.url);
   const [family, setFamily] = useState<string>();
 
@@ -430,7 +364,7 @@ function FontPreview({ item }: { item: DisplayItem }) {
     return () => { alive = false; };
   }, [source]);
 
-  return <span className={`resource-art__font-sample${family ? " resource-art__font-sample--loaded" : ""}`} style={family ? { fontFamily: `"${family}", var(--font-ui)` } : undefined}>Ag</span>;
+  return <span className={`resource-art__font-sample${family ? " resource-art__font-sample--loaded" : ""}`} title="AaBbCcDdEeFfGgHh" style={family ? { fontFamily: `"${family}", var(--font-ui)` } : undefined}>{compact ? "Ag" : "AaBbCcDdEeFfGgHh"}</span>;
 }
 
 function ResourceArt({ item, compact = false, preview = false }: { item: DisplayItem; compact?: boolean; preview?: boolean }) {
@@ -575,7 +509,7 @@ function ResourceArt({ item, compact = false, preview = false }: { item: Display
           else setFailedSource(sourceKey);
         }}
       />}
-      {item.kind === "font" && <FontPreview item={item} />}
+      {item.kind === "font" && <FontPreview item={item} compact={compact} />}
       {(!previewSource || loadedSource !== previewSource) && item.kind !== "font" && (
         <div className={`resource-art__placeholder${isFileKind(item.kind) ? " resource-art__placeholder--file" : ""}`} aria-hidden="true">
           {isFileKind(item.kind) ? <FileTypeMark item={item} /> : <Icon size={26} strokeWidth={1.7} />}
@@ -697,6 +631,8 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
   const [managementError, setManagementError] = useState("");
   const [undoDeletion, setUndoDeletion] = useState<{ label: string; pages: PageCapture[]; wholePages: boolean } | null>(null);
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [devMode, setDevMode] = useState(false);
+  const [devTab, setDevTab] = useState<DevModeTab>("info");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DisplayItem | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
@@ -858,7 +794,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
     const observer = new ResizeObserver(measure);
     observer.observe(bar);
     return () => { observer.disconnect(); shellRef.current?.style.removeProperty("--bulk-selection-height"); };
-  }, [selectedItems.length > 0]);
+  }, [selectedItems.length > 0, devMode]);
 
   const toggleSelection = (item: DisplayItem) => {
     setSelectedKeys((current) => {
@@ -910,13 +846,15 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
       pages: scopedCaptures.length,
       images: resources.filter((resource) => resource.kind === "image").length,
       icons: resources.filter((resource) => resource.kind === "icon").length,
-      fonts: resources.filter((resource) => resource.kind === "font").length,
+      fonts: resources.filter((resource) => resource.kind === "font").length + (savedOnly ? 0 : typographyEntries(scopedCaptures).length),
       links: resources.filter((resource) => resource.kind === "link").length,
       media: resources.filter((resource) => resource.kind === "video" || resource.kind === "audio").length,
       files: resources.filter((resource) => resourceMatchesCategory(resource, "files")).length,
       saved: resources.filter((resource) => resource.saved === true).length,
     };
-  }, [scopedCaptures]);
+  }, [scopedCaptures, savedOnly]);
+
+  const textStyles = useMemo(() => savedOnly ? [] : typographyEntries(scopedCaptures, query), [scopedCaptures, query, savedOnly]);
 
   useEffect(() => {
     if (selectedCaptureId && !visibleCaptures.some((capture) => capture.id === selectedCaptureId)) {
@@ -1030,7 +968,14 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
     const existing = previous.find(page => page.pageUrl === capture.pageUrl);
     const next = upsertPageCapture(previous, allowedCapture);
     const savedCapture = next.find((saved) => saved.pageUrl === capture.pageUrl);
-    if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl) {
+    const inspectionData = (page?: PageCapture) => {
+      if (!page?.devInspection) return "";
+      const { capturedAt: _capturedAt, ...data } = page.devInspection;
+      return JSON.stringify(data);
+    };
+    if (automatic && existing && existing.pageTitle === capture.pageTitle && existing.faviconUrl === capture.faviconUrl
+      && inspectionData(existing) === inspectionData(savedCapture)
+      && JSON.stringify(existing.typography ?? []) === JSON.stringify(savedCapture?.typography ?? [])) {
       const fields = ["id", "kind", "url", "label", "alt", "description", "width", "height", "mimeType", "saved", "identityUrl"] as const;
       if (savedCapture?.resources.length === existing.resources.length && savedCapture.resources.every((resource, index) => {
         const old = existing.resources[index];
@@ -1442,6 +1387,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
   };
 
   const selectCategory = (next: Category) => {
+    setDevMode(false);
     setManagementOpen(false);
     if (next === "saved") {
       setSavedOnly(true);
@@ -1515,6 +1461,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
   const headingTitle = savedOnly ? category === "all" ? "Saved items" : `Saved ${title.toLowerCase()}` : category === "all" ? currentPageNeedsScan ? activePage.page.title || "Current page" : selectedCapture?.pageTitle || "My library" : title;
   const canExport = captures.length > 0 && !sampleMode;
   const activeView = category === "links" ? "list" : category === "all" ? "grid" : view;
+  const devCaptures = currentPageNeedsScan ? [] : selectedCapture ? visibleCaptures.filter(capture => capture.id === selectedCapture.id) : visibleCaptures;
 
   const renderResourceActions = (item: DisplayItem, inTable = false) => {
     const description = resourceDescription(item);
@@ -1603,7 +1550,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
   };
 
   return (
-    <div ref={shellRef} className={`stashwell-shell stashwell-shell--${mode}${selectedItems.length ? " stashwell-shell--selecting" : ""}${downloads.jobs.length ? " stashwell-shell--downloading" : ""}`}>
+    <div ref={shellRef} className={`stashwell-shell stashwell-shell--${mode}${!devMode && selectedItems.length ? " stashwell-shell--selecting" : ""}${downloads.jobs.length ? " stashwell-shell--downloading" : ""}`}>
       <header ref={topbarRef} className="topbar">
         <div className="topbar__brand-cluster">
           <button
@@ -1628,7 +1575,10 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
           <input
             type="search"
             value={managementOpen ? managementQuery : query}
-            onChange={(event) => managementOpen ? setManagementQuery(event.target.value) : setQuery(event.target.value)}
+            onChange={(event) => {
+              if (managementOpen) setManagementQuery(event.target.value);
+              else { setDevMode(false); setQuery(event.target.value); }
+            }}
             placeholder={managementOpen ? "Search captured pages and items" : "Search your library"}
             aria-label={managementOpen ? "Search captured pages and items" : "Search your library"}
           />
@@ -1812,7 +1762,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
           {savedOnly && <button className="saved-scope-back" type="button" onClick={openLibrary}><ArrowLeft size={16} />Back to library</button>}
           <div className="content-heading">
             <div className="content-heading__title">
-              <h1>{headingTitle}</h1>
+              <h1>{devMode ? devTab === "info" ? "Page info" : "Colors" : headingTitle}</h1>
               <p>
                 {sampleMode
                   ? "A sample workspace with example page resources."
@@ -1844,14 +1794,19 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
               </button>
               {category !== "links" && category !== "all" && (
                 <div className="view-switch" role="group" aria-label="Choose layout">
-                  <button className={activeView === "grid" ? "is-active" : ""} aria-label="Grid view" aria-pressed={activeView === "grid"} onClick={() => setView("grid")}>
+                  <button className={activeView === "grid" ? "is-active" : ""} aria-label="Grid view" aria-pressed={activeView === "grid"} onClick={() => { setView("grid"); setDevMode(false); }}>
                     <Grid2X2 size={17} />
                   </button>
-                  <button className={activeView === "list" ? "is-active" : ""} aria-label="List view" aria-pressed={activeView === "list"} onClick={() => setView("list")}>
+                  <button className={activeView === "list" ? "is-active" : ""} aria-label="List view" aria-pressed={activeView === "list"} onClick={() => { setView("list"); setDevMode(false); }}>
                     <List size={18} />
                   </button>
                 </div>
               )}
+              <button type="button" className="dev-mode-toggle" role="switch" aria-checked={devMode} aria-label="Dev mode" disabled={!loaded}
+                title="Show saved page details and computed CSS colors. Use Scan page to refresh them."
+                onClick={() => { setDevMode(current => !current); setOpenActionMenuId(null); setBulkMenuOpen(false); }}>
+                <span>Dev mode</span><span className="dev-mode-toggle__track" aria-hidden="true"><span /></span>
+              </button>
             </div>
           </div>
 
@@ -1926,7 +1881,19 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
           )}
 
           <div className="collection-toolbar">
-            <div className="category-pills" role="tablist" aria-label="Filter resources">
+            {devMode ? <div className="category-pills dev-mode-tabs" role="tablist" aria-label="Developer views"
+              onKeyDown={event => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const next: DevModeTab = event.key === "Home" ? "info" : event.key === "End" ? "colors" : devTab === "info" ? "colors" : "info";
+                setDevTab(next);
+                window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-dev-tab="${next}"]`)?.focus());
+              }}>
+              {(["info", "colors"] as const).map(tab => <button key={tab} type="button" role="tab" id={`dev-tab-${tab}`} data-dev-tab={tab}
+                aria-controls="dev-mode-content" aria-selected={devTab === tab} tabIndex={devTab === tab ? 0 : -1}
+                className={`category-pill${devTab === tab ? " category-pill--active" : ""}`} onClick={() => setDevTab(tab)}>{tab === "info" ? "Info" : "Colors"}</button>)}
+              <button type="button" role="tab" data-dev-tab="components" className="category-pill" aria-selected={false} aria-disabled="true" disabled title="Components inspection is coming next">Components <small>Coming next</small></button>
+            </div> : <div className="category-pills" role="tablist" aria-label="Filter resources">
               {tabCategoryItems.map(({ id, label }) => (
                 <button
                   key={id}
@@ -1940,9 +1907,9 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
                   <span>{totalCounts[id]}</span>
                 </button>
               ))}
-            </div>
-            <div className="collection-meta">
-              <span>{query ? `${filteredItems.length} of ${activeCount} items` : countLabel(activeCount, showAlbums ? "resource" : "item")}</span>
+            </div>}
+            {!devMode && <div className="collection-meta">
+              <span>{category === "fonts" ? `${countLabel(textStyles.length, "text style")} · ${countLabel(filteredItems.length, "font file")}` : query ? `${filteredItems.length} of ${activeCount} items` : countLabel(activeCount, showAlbums ? "resource" : "item")}</span>
               {category !== "links" && category !== "all" && (
                 <>
                   <span className="collection-meta__dot" aria-hidden="true">·</span>
@@ -1953,7 +1920,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
                   </button>
                 </>
               )}
-            </div>
+            </div>}
           </div>
 
           {notice && (
@@ -1964,8 +1931,14 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
             </div>
           )}
 
-          <div className={`library-layout${selected && mode === "web" ? " library-layout--details" : ""}`}>
-            <section className="resource-section" aria-label={title}>
+          <div className={`library-layout${!devMode && selected && mode === "web" ? " library-layout--details" : ""}`}>
+            <section className="resource-section" aria-label={devMode ? undefined : title} role={devMode ? "tabpanel" : undefined}
+              id={devMode ? "dev-mode-content" : undefined} aria-labelledby={devMode ? `dev-tab-${devTab}` : undefined}>
+              {devMode ? <DevModePanel captures={devCaptures} tab={devTab} onCopy={handleCopy}
+                onScan={mode === "extension" && !sampleMode && (selectedCapture ? selectedCapture.pageUrl === activePage.page.url : followsActivePage) ? () => void handleCapture() : undefined}
+                busy={busy || activePage.page.loading || mode === "extension" && activePage.page.tabId === undefined} /> : <>
+              {loaded && category === "fonts" && textStyles.length > 0 && <TypographyList entries={textStyles} onCopy={handleCopy} />}
+              {loaded && category === "fonts" && textStyles.length > 0 && filteredItems.length > 0 && <h2 className="typography-files-title">Font files <span>{filteredItems.length}</span></h2>}
               {!loaded || (mode === "extension" && activePage.page.tabId === undefined) ? (
                 <div className="loading-state"><LoaderCircle className="spin" size={23} /><span>Opening your library…</span></div>
               ) : showAlbums && pageAlbums.length > 0 ? (
@@ -1977,7 +1950,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
                     </div>
                   ))}
                 </div>
-              ) : filteredItems.length === 0 ? (
+              ) : filteredItems.length === 0 ? (category === "fonts" && textStyles.length > 0 ? null : (
                 query ? (
                   <div className="empty-state empty-state--compact">
                     <Search size={25} />
@@ -2013,7 +1986,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
                     <p>{savedOnly ? "Use a resource’s menu to save it, or choose another source page." : selectedCapture ? "Choose another page or scan this page again." : "Choose another section or scan a page that contains this kind of resource."}</p>
                   </div>
                 )
-              ) : activeView === "grid" ? (
+              )) : activeView === "grid" ? (
                 <div className="resource-grid">
                   {filteredItems.map((item) => {
                     const description = resourceDescription(item);
@@ -2086,9 +2059,10 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
                   </table>
                 </div>
               )}
+              </>}
             </section>
 
-            {selected && mode === "web" && (
+            {!devMode && selected && mode === "web" && (
               <ResourceDetails
                 item={selected}
                 onClose={() => setSelected(null)}
@@ -2102,7 +2076,7 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
         </main>
       </div>
 
-      {selected && mode === "extension" && <ResourceModal key={selectionKey(selected)} item={selected}
+      {!devMode && selected && mode === "extension" && <ResourceModal key={selectionKey(selected)} item={selected}
         onClose={() => setSelected(null)} onDelete={() => sampleMode ? setSelected(null) : handleDelete(selected)}
         onCopy={handleCopy} allowDelete={!sampleMode} onDownload={youtubeId(selected.url) ? undefined : () => void handleDownloadResource(selected, selected.kind === "icon" ? downloadFormats.icons : selected.kind === "image" ? downloadFormats.images : "original")}
         downloadFormat={selected.kind === "icon" ? downloadFormats.icons : downloadFormats.images}
@@ -2112,9 +2086,9 @@ export function LibraryApp({ adapter, mode, renderSelectionAction }: { adapter: 
         downloadTray={downloadTray}
       />}
 
-      {!(selected && mode === "extension") && downloadTray}
+      {(devMode || !(selected && mode === "extension")) && downloadTray}
 
-      {selectedItems.length > 0 && (
+      {!devMode && selectedItems.length > 0 && (
         <div ref={bulkSelectionRef} className="bulk-selection" role="region" aria-label="Selected resources" aria-busy={bulkBusy}>
           <div className="bulk-selection__summary">
           <span className="bulk-selection__count" aria-live="polite">

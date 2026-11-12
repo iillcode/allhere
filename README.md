@@ -119,3 +119,22 @@ Build and run `node scripts/verify-auto-updates.mjs` to verify first-scan author
 ## Security signals
 
 Local checks inspect URL schemes and hostname patterns, including unencrypted HTTP, unusual schemes, credentials in a URL, encoded hostnames, direct IP hosts, known shorteners, and executable file extensions. HTTPS is reported only as transport encryption; it is not a statement that a host, redirect, page, or file is trustworthy.
+## Text previews
+
+The **Text** tab includes typography samples for the scanned page's headings, paragraphs, links, and other visible text styles. Expand **Show details** for the font family, original px/rem size, weight, style, line height, letter spacing, and text transform. Copy CSS to reuse the style, or copy/open discovered font-file and stylesheet/CDN URLs. Original font-file previews and downloads remain below the typography cards.
+
+Samples use fixed example text and scale down to fit the panel; the details retain the source measurements. The feature stores computed styles and instance counts, not the page's text or form values. System fonts and inaccessible stylesheets may not expose a reusable URL. Rescan older saved pages to collect typography details. JSON backups preserve them without changing the archive version or existing storage key.
+
+After building, run `node scripts/verify-typography.mjs` for the installed-extension check. Set `STASHWELL_WEB_URL` to a running `/library` page to include web layouts.
+
+## Dev mode
+
+Turn on the labeled **Dev mode** switch beside **Grid/List** to replace the resource tabs with **Info**, **Colors**, and a disabled **Components** tab. Info and Colors are available now; Components is reserved for a later update. Switching modes only changes the view: it does not scan, request website access, or change your resource layout. Older saved pages need another manual scan before inspection details appear.
+
+**Info** shows the scanned page's identity, page-declared social preview, resource and DOM counts, SEO/social metadata, canonical and stylesheet URLs, font families, viewport, and browser navigation timings when available. Detected technologies appear as name/category badges. Their evidence remains in the saved record but is not displayed or copied by the technology controls; detection does not prove the complete framework or hosting stack. Related URLs and details can be copied. The social preview uses the page's original image URL with no referrer and is omitted if it cannot load; it is not a captured screenshot.
+
+**Colors** shows up to 12 most-used opaque CSS colors in a compact weighted palette and a detailed list. The shared selector merges equal hex values, ranks by use count, and omits single-use colors when repeated colors exist; pages containing only single-use colors show up to 12 as a fallback. The list, count, search, and copy actions use that same selected set; the full captured color metadata remains in the saved snapshot. HEX/RGB/HSL values and Values & usage expose properties and matching tokens, with no separate CSS custom properties section or transparency checkerboard. Counts record sampled elements using a color, not its percentage of the screen. Matching token values do not establish which variable an element used.
+
+Inspection reads the top document and accessible open shadow roots under the existing scan permissions. It does not inspect frame contents for Dev mode, take page screenshots, sample image pixels, store form values, or read private inline script text. The saved snapshot records sampling limits and unreadable stylesheet counts; explanatory coverage text is omitted from the interface. Closed roots, inaccessible CSS, unloaded content, and absent browser timings can leave details incomplete. The captured metadata stays in the local library and is included in JSON import/export. Mode selection itself is not persisted. Existing manual-scan and automatic-update authorization remains unchanged.
+
+After building, run `node scripts/verify-dev-mode.mjs` to check capture, colors, privacy exclusions, clipboard actions, archive transfers, automatic CSS updates, and sidebar layouts. Set `STASHWELL_WEB_URL` to a running `/library` page to include the web library.

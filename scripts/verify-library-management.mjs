@@ -140,7 +140,7 @@ try {
   }
 
   await menu("Saved items");
-  for (const [name, count] of [["Images", 2], ["Icons", 1], ["Fonts", 1], ["Video & audio", 2], ["Links", 1], ["Files", 1]]) {
+  for (const [name, count] of [["Images", 2], ["Icons", 1], ["Text", 1], ["Video & audio", 2], ["Links", 1], ["Files", 1]]) {
     await tab(name);
     await until(() => panel.evaluate(`document.querySelectorAll('.resource-card, .resource-table tbody tr').length === ${count}`), `${name} did not retain saved-only filtering`);
     assert.ok(await panel.evaluate("[...document.querySelectorAll('.resource-card, .table-name')].every(item => (item.getAttribute('aria-label') || item.querySelector('strong').textContent).startsWith('Saved'))"), `${name} leaked unsaved resources`);
