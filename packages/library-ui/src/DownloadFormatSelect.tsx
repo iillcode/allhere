@@ -11,12 +11,13 @@ const formats: { value: IconDownloadFormat; label: string }[] = [
 ];
 const imageFormats = formats.filter(format => format.value !== "svg");
 
-export function DownloadFormatSelect({ label, value, onChange, allowSvg = false, disabled = false }: {
+export function DownloadFormatSelect({ label, value, onChange, allowSvg = false, disabled = false, compact = false }: {
   label: string;
   value: IconDownloadFormat;
   onChange: (format: IconDownloadFormat) => void;
   allowSvg?: boolean;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -117,11 +118,11 @@ export function DownloadFormatSelect({ label, value, onChange, allowSvg = false,
   };
 
   return <div className="download-format" ref={rootRef}>
-    <label id={`${id}-label`} htmlFor={`${id}-trigger`}>{label}</label>
+    <label id={`${id}-label`} htmlFor={`${id}-trigger`} className={compact ? "visually-hidden" : undefined}>{label}</label>
     <button ref={triggerRef} id={`${id}-trigger`} className="download-format__trigger" type="button" role="combobox"
       aria-labelledby={`${id}-label`} aria-expanded={open && !disabled} aria-haspopup="listbox" aria-controls={`${id}-options`}
       aria-activedescendant={open ? `${id}-option-${active}` : undefined} aria-describedby={help ? `${id}-help` : undefined}
-      disabled={disabled} onClick={() => open ? setOpen(false) : show()} onKeyDown={handleKeyDown}
+      title={compact ? help : undefined} disabled={disabled} onClick={() => open ? setOpen(false) : show()} onKeyDown={handleKeyDown}
       onBlur={event => { if (!rootRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
       <span>{options[selected].label}</span><ChevronDown size={16} aria-hidden="true" />
     </button>
@@ -133,6 +134,6 @@ export function DownloadFormatSelect({ label, value, onChange, allowSvg = false,
         <span>{format.label}</span>{format.value === value && <Check size={16} aria-hidden="true" />}
       </div>)}
     </div>
-    {help && <small id={`${id}-help`}>{help}</small>}
+    {help && <small id={`${id}-help`} className={compact ? "visually-hidden" : undefined}>{help}</small>}
   </div>;
 }

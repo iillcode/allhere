@@ -1,5 +1,6 @@
 import type { ResourceKind } from "@stashwell/core";
-import { loadImageFile } from "./assetFiles";
+import { loadImageSources } from "./assetFiles";
+import { extensionForMime, loadDownloadFile, responseFilename } from "./downloadFiles";
 
 export const MAX_DRAG_BYTES = 64 * 1024 * 1024;
 const formats: Record<string, string> = {
@@ -15,8 +16,12 @@ const formats: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
 };
 
-export async function loadResourceFile(rawUrl: string, kind: ResourceKind | "page", signal?: AbortSignal): Promise<{ blob: Blob; extension: string }> {
-  if (kind === "image" || kind === "icon") return loadImageFile(rawUrl, signal);
+export async function loadResourceFile(rawUrl: string, kind: ResourceKind | "page", signal?: AbortSignal, variantUrls?: readonly string[], mimeType?: string): Promise<{ blob: Blob; extension: string }> {
+  if (kind === "image" || kind === "icon") return loadImageSources({ url: rawUrl, variantUrls }, signal);
+  if (kind === "video" || kind === "audio") {
+    const file = await loadDownloadFile(rawUrl, kind, MAX_DRAG_BYTES, "This file exceeds the 64 MB drag limit.", signal, { variantUrls, mimeType });
+    return { blob: file.blob, extension: file.extension! };
+  }
   let url: URL;
   try { url = new URL(rawUrl); } catch { throw new Error("This file address is invalid. Scan its page again."); }
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {
@@ -53,15 +58,16 @@ export async function loadResourceFile(rawUrl: string, kind: ResourceKind | "pag
     const text = new TextDecoder().decode(head);
     const urlExtension = url.pathname.match(/\.([a-z0-9]{1,10})$/i)?.[1]?.toLowerCase();
     let mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() || "application/octet-stream";
-    let extension = formats[mime] || urlExtension || "bin";
+    const serverExtension = responseFilename(response.headers.get("content-disposition"))?.match(/\.([a-z0-9]{1,12})$/i)?.[1].toLowerCase();
+    let extension = serverExtension || formats[mime] || extensionForMime(mime) || urlExtension || "bin";
     // Prefer byte signatures over stale labels and negotiated response headers.
     if (text.startsWith("%PDF-")) { mime = "application/pdf"; extension = "pdf"; }
     else if (text.startsWith("wOF2")) { mime = "font/woff2"; extension = "woff2"; }
     else if (text.startsWith("wOFF")) { mime = "font/woff"; extension = "woff"; }
     else if (text.startsWith("OTTO")) { mime = "font/otf"; extension = "otf"; }
     else if (head[0] === 0 && head[1] === 1 && head[2] === 0 && head[3] === 0) { mime = "font/ttf"; extension = "ttf"; }
-    else if (text.slice(4, 8) === "ftyp") { mime = kind === "audio" ? "audio/mp4" : "video/mp4"; extension = kind === "audio" ? "m4a" : "mp4"; }
-    else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) { mime = kind === "audio" ? "audio/webm" : "video/webm"; extension = "webm"; }
+    else if (text.slice(4, 8) === "ftyp") { mime = "video/mp4"; extension = "mp4"; }
+    else if (head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3) { mime = "video/webm"; extension = "webm"; }
     else if (text.startsWith("OggS")) { mime = "audio/ogg"; extension = "ogg"; }
     else if (text.startsWith("RIFF") && text.slice(8, 12) === "WAVE") { mime = "audio/wav"; extension = "wav"; }
     else if (text.startsWith("ID3") || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0)) { mime = "audio/mpeg"; extension = "mp3"; }
@@ -69,7 +75,6 @@ export async function loadResourceFile(rawUrl: string, kind: ResourceKind | "pag
       throw new Error("The host returned a web page instead of the file. Scan its page again for a direct file link.");
     }
     if (kind === "font" && !mime.startsWith("font/") && !mime.includes("font")) throw new Error("The host did not return a supported font file.");
-    if ((kind === "video" || kind === "audio") && !/^(video|audio)\//.test(mime)) throw new Error("The host did not return a direct video or audio file.");
     return { blob: new Blob([original], { type: mime }), extension };
   } catch (error) {
     if (controller.signal.aborted) throw new Error("File preparation was interrupted or timed out. Try again.");

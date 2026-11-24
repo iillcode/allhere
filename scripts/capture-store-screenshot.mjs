@@ -135,7 +135,7 @@ try {
     await until(() => page.evaluate("chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>{const icon=document.querySelector('.scan-favicon img');return icon?.dataset.faviconUrl===tab?.favIconUrl&&icon?.complete&&icon.naturalWidth>0;})"), "The panel did not receive the current tab's favicon.");
     await page.evaluate("document.querySelector('.button--scan').click()", true);
     try {
-      await until(() => page.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
+      await until(() => page.evaluate(`fixtureHistory.read().then(data => data['allhere.library.v1']?.some(capture => capture.pageUrl === ${JSON.stringify(webUrl)}))`), "The installed extension did not scan the source webpage.");
     } catch (error) {
       console.error(await page.evaluate("({notice:document.querySelector('.notice')?.textContent,state:document.querySelector('.button--scan')?.dataset.scanState})"));
       throw error;

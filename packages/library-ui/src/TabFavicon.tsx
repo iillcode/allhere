@@ -1,18 +1,22 @@
 import { Globe } from "lucide-react";
 import { useEffect, useState } from "react";
+import { iconNeedsDarkBackground } from "./iconContrast";
 
-function faviconSource(value?: string): string | undefined {
-  if (!value) return;
+function faviconSource(value?: string, pageUrl?: string): string | undefined {
   try {
-    const url = new URL(value);
-    if (!url.username && !url.password && (["http:", "https:"].includes(url.protocol) || /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)[;,]/i.test(value))) return value;
-  } catch { /* Chrome may omit the favicon until temporary tab access is granted. */ }
+    if (value && /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)[;,]/i.test(value)) return value;
+    const url = new URL(value || pageUrl || "");
+    if (!url.username && !url.password && ["http:", "https:"].includes(url.protocol)) {
+      return value ? url.href : new URL("/favicon.ico", url).href;
+    }
+  } catch { /* A tab or saved capture may lack a usable site address. */ }
 }
 
-export function TabFavicon({ url, className = "scan-favicon", fallbackSize = 16 }: { url?: string; className?: string; fallbackSize?: number }) {
-  const source = faviconSource(url);
+export function TabFavicon({ url, pageUrl, className = "scan-favicon", fallbackSize = 16 }: { url?: string; pageUrl?: string; className?: string; fallbackSize?: number }) {
+  const source = faviconSource(url, pageUrl);
   const [loaded, setLoaded] = useState<{ source: string; url: string }>();
-  const [failedSource, setFailedSource] = useState<string>();
+  const [failedImage, setFailedImage] = useState<{ source: string; url: string }>();
+  const [darkImage, setDarkImage] = useState<{ source: string; url: string }>();
 
   useEffect(() => {
     if (!source) return;
@@ -50,10 +54,18 @@ export function TabFavicon({ url, className = "scan-favicon", fallbackSize = 16 
     };
   }, [source]);
 
+  const image = loaded?.source === source && loaded !== failedImage ? loaded : undefined;
   return (
-    <span className={className} aria-hidden="true">
-      {source && loaded?.source === source && source !== failedSource
-        ? <img key={source} src={loaded.url} data-favicon-url={source} alt="" referrerPolicy="no-referrer" onError={() => setFailedSource(source)} />
+    <span className={image && image === darkImage ? `${className} site-favicon--dark` : className} aria-hidden="true">
+      {image
+        ? <img key={image.url} src={image.url} data-favicon-url={image.source} alt="" draggable={false} referrerPolicy="no-referrer"
+          onLoad={(event) => {
+            const element = event.currentTarget;
+            void iconNeedsDarkBackground(image.source, element).then(dark => {
+              if (element.isConnected) setDarkImage(dark ? image : undefined);
+            });
+          }}
+          onError={() => setFailedImage(image)} />
         : <Globe size={fallbackSize} />}
     </span>
   );

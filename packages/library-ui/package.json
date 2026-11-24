@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./asset-tools": "./src/assetTools.ts",
+    "./background-capture": "./src/backgroundCapture.ts",
+    "./media-files": "./src/mediaFiles.ts",
+    "./media-sources": "./src/mediaSources.ts",
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
@@ -17,10 +20,11 @@
     "react-dom": "^19.0.0"
   },
   "dependencies": {
-    "@stashwell/core": "workspace:*",
     "@fontsource/roboto": "^5.2.0",
+    "@stashwell/core": "workspace:*",
     "fflate": "^0.8.3",
-    "lucide-react": "^0.468.0"
+    "lucide-react": "^0.468.0",
+    "mediabunny": "1.66.2"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

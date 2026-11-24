@@ -107,7 +107,7 @@ try {
   panel = await openPage(`chrome-extension://${new URL(worker.url).hostname}/index.html`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.stashwell-shell'))"), "Library did not render");
   await panel.evaluate("window.__faviconPermissionRequests=0;const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__faviconPermissionRequests++;return permission(options);}");
-  await panel.evaluate(`chrome.storage.local.set({'allhere.library.v1': ${JSON.stringify([capture, other])}, 'allhere.capture-exclusions.v1': {pages:[],resources:{}}})`);
+  await panel.evaluate(`fixtureHistory.write({'allhere.library.v1': ${JSON.stringify([capture, other])}, 'allhere.capture-exclusions.v1': {pages:[],resources:{}}})`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.page-scope__trigger'))"), "Source page control did not render");
   await panel.evaluate("document.querySelector('.page-scope__trigger').click()");
   await panel.evaluate("[...document.querySelectorAll('.page-scope__option')].find(button=>button.textContent.includes('All pages')).click()");
@@ -118,7 +118,7 @@ try {
     await panel.evaluate(`[...document.querySelectorAll('.library-menu__item')].find(button => button.querySelector('span').textContent === ${JSON.stringify(name)}).click()`);
   };
   const tab = (name) => panel.evaluate(`[...document.querySelectorAll('.category-pill')].find(button => button.textContent.startsWith(${JSON.stringify(name)})).click()`);
-  const read = () => panel.evaluate("chrome.storage.local.get(['allhere.library.v1','allhere.capture-exclusions.v1'])");
+  const read = () => panel.evaluate("fixtureHistory.read()");
   const waitIcon = async (client, label, url) => {
     const selector = `[aria-label="Manage items from ${label}"] .library-manager__page-mark img`;
     await until(() => client.evaluate(`(()=>{const image=document.querySelector(${JSON.stringify(selector)});return image?.dataset.faviconUrl===${JSON.stringify(url)}&&image.complete&&image.naturalWidth>0;})()`), `Manage did not display the site logo for ${label}`);
@@ -160,7 +160,7 @@ try {
   const setOtherIcon = async faviconUrl => {
     const stored = await read();
     stored['allhere.library.v1'].find(page => page.id === other.id).faviconUrl = faviconUrl;
-    await panel.evaluate(`chrome.storage.local.set(${JSON.stringify(stored)})`);
+    await panel.evaluate(`fixtureHistory.write(${JSON.stringify(stored)})`);
   };
   await setOtherIcon(base + "/missing-icon.svg");
   const otherMark = `[aria-label="Manage items from ${other.pageTitle}"] .library-manager__page-mark`;
@@ -179,11 +179,11 @@ try {
   await shot("manage-items-390", 390);
   const initial = await read();
   assert.equal(initial['allhere.library.v1'].find((page) => page.id === capture.id).resources.length, 14);
-  await panel.evaluate("window.originalSet=chrome.storage.local.set.bind(chrome.storage.local);chrome.storage.local.set=async()=>{throw new Error('Storage failure fixture')}");
+  await panel.evaluate("window.originalPut=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){if(this.name==='resources')throw new Error('Storage failure fixture');return window.originalPut.apply(this,args)}");
   await panel.evaluate("document.querySelector('[aria-label=\"Delete Saved image\"]').click()");
   await until(() => panel.evaluate("Boolean(document.querySelector('.library-manager__error'))"), "Deletion error was not shown");
   assert.equal((await read())['allhere.library.v1'].find((page) => page.id === capture.id).resources.length, 14, "Failed deletion lost data");
-  await panel.evaluate("chrome.storage.local.set=window.originalSet;document.querySelector('[aria-label=\"Delete Saved image\"]').click()");
+  await panel.evaluate("IDBObjectStore.prototype.put=window.originalPut;document.querySelector('[aria-label=\"Delete Saved image\"]').click()");
   await until(async () => !(await read())['allhere.library.v1'].find((page) => page.id === capture.id).resources.some((resource) => resource.id === "saved-image"), "Item deletion did not persist");
   assert.equal((await read())['allhere.library.v1'].find((page) => page.id === other.id).resources.length, 2, "Item deletion affected another page");
   await click(".library-manager__undo button");
@@ -206,8 +206,8 @@ try {
   await until(() => source.evaluate("document.readyState === 'complete'"), "Live source did not load");
   await delay(1800);
   await source.evaluate("document.querySelector('#updates').innerHTML='<img src=\"/late-image.svg\" alt=\"Late image\">'");
-  await delay(1800);
-  assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id)?.resources.some((resource) => resource.label === "Late image"), "Page updates must wait for Scan page");
+  await delay(2800);
+  assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id)?.resources.some((resource) => resource.label === "Late image"), "Saved resources must not enable a new tab's first scan");
   assert.ok(!(await read())['allhere.library.v1'].find((page) => page.id === capture.id).resources.some((resource) => resource.url === base + "/saved-image.svg"), "Background scanning restored a deleted item");
   await until(() => panel.evaluate("document.querySelector('.page-scope__selection strong')?.textContent==='Research resources'"), "The panel did not follow the newly active saved page");
   assert.ok(await panel.evaluate("document.querySelector('.saved-scope-back') === null"), "The new active page kept the previous Saved items scope");
@@ -226,7 +226,7 @@ try {
   await source.evaluate("document.querySelector('#updates').innerHTML='<img src=\"/later-image.svg\" alt=\"Later image\">'");
   await delay(2200);
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "A background scan restored a deleted page");
-  await panel.send("Page.reload"); await until(() => panel.evaluate("document.querySelector('.empty-state h2')?.textContent==='Scan this page to see its resources'"), "Deleted active URL did not show its first-scan view"); await delay(1000);
+  await panel.send("Page.reload"); await until(() => panel.evaluate("document.querySelector('.empty-state h2')?.textContent==='No resources collected yet'"), "Deleted active URL did not show its first-scan view"); await delay(1000);
   assert.ok(!(await read())['allhere.library.v1'].some((page) => page.pageUrl === base + "/a"), "Panel reopen restored a deleted page");
   await panel.evaluate("(() => { const button = document.querySelector('.button--scan'); window.__explicitScanState = { sawBusy: button.disabled, finished: false }; const observer = new MutationObserver(() => { if (button.disabled) window.__explicitScanState.sawBusy = true; else if (window.__explicitScanState.sawBusy) { window.__explicitScanState.finished = true; observer.disconnect(); } }); observer.observe(button, { attributes: true, attributeFilter: ['disabled'] }); })()");
   await click(".button--scan");

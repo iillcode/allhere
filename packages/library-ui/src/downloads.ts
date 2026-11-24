@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { requestWebsiteAccess } from "./websiteAccess";
 
 export type DownloadJob = {
   id: string;
@@ -13,9 +12,8 @@ export type DownloadJob = {
   createdAt: number;
   kind?: string;
   url?: string;
-  permissionOrigins?: string[];
 };
-export type DownloadInput = { url: string; title: string; filename: string; kind: string; sourcePage?: string };
+export type DownloadInput = { url: string; title: string; filename: string; kind: string; sourcePage?: string; nameFromItem?: boolean; mimeType?: string; variantUrls?: string[] };
 type ChromeApi = {
   runtime: { sendMessage: (message: unknown) => Promise<{ ok: boolean; result?: unknown; error?: string }> };
   storage: { local: { get: (key: string) => Promise<Record<string, unknown>> }; onChanged: {
@@ -76,16 +74,6 @@ export function useDownloads(enabled: boolean) {
   }, [enabled, hasActive]);
   return {
     jobs,
-    // Call directly from a click handler, before awaiting anything: Chrome requires a user gesture.
-    allowAccess: (origins?: string[]) => origins?.length
-      ? requestWebsiteAccess(origins)
-      : Promise.reject(new Error("Choose the resource again to request access to its website.")),
-    retry: async (job: DownloadJob) => {
-      if (!job.url) throw new Error("Choose this resource again to retry the download.");
-      const result = await message("start", { input: { url: job.url, title: job.title, filename: job.filename, kind: job.kind || "other" } });
-      await message("dismiss", { id: job.id });
-      return result;
-    },
     start: async (input: DownloadInput) => {
       if (!input.url.startsWith("blob:")) return message("start", { input }) as Promise<DownloadJob>;
       const job = await message("register", { input }) as DownloadJob;

@@ -6,6 +6,7 @@ export type LibrarySelectionItem = {
   identity: string;
   kind: ResourceKind | "page";
   url: string;
+  variantUrls?: readonly string[];
   label: string;
   pageUrl: string;
 };

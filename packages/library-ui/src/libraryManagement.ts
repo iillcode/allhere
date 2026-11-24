@@ -23,11 +23,14 @@ export function normalizeCaptureExclusions(value: unknown): CaptureExclusions {
 
 export function filterExcludedCapture(capture: PageCapture, exclusions: CaptureExclusions): PageCapture | null {
   if (exclusions.pages.includes(capture.pageUrl)) return null;
-  const excluded = new Set(exclusions.resources[capture.pageUrl] ?? []);
+  const keys = exclusions.resources[capture.pageUrl];
+  if (!keys?.length) return capture;
+  const excluded = new Set(keys);
   return { ...capture, resources: capture.resources.filter((resource) => !resourceIdentityKeys(resource).some(key => excluded.has(key))) };
 }
 
 export function restorePageCapture(exclusions: CaptureExclusions, pageUrl: string): CaptureExclusions {
+  if (!exclusions.pages.includes(pageUrl) && !Object.hasOwn(exclusions.resources, pageUrl)) return exclusions;
   return {
     pages: exclusions.pages.filter((url) => url !== pageUrl),
     resources: Object.fromEntries(Object.entries(exclusions.resources).filter(([url]) => url !== pageUrl)),

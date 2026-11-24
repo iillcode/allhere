@@ -115,7 +115,7 @@ try {
         pageUrl: base + "/source", pageTitle: "Design assets", capturedAt,
         security: { transport: "http", relation: "same-host", hostname: "127.0.0.1", signals: [], checkedAt: capturedAt, method: "local-heuristics" } })),
     };
-    await panel.evaluate(`chrome.storage.local.set({'allhere.library.v1':${JSON.stringify([capture])}})`);
+    await panel.evaluate(`fixtureHistory.write({'allhere.library.v1':${JSON.stringify([capture])}})`);
     await panel.send("Page.reload");
     await until(() => panel.evaluate("Boolean(document.querySelector('.resource-album,.resource-card'))"), "Seeded resources did not render");
     await panel.evaluate(`window.__clipboard=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{write:async items=>{const type=items[0].types[0];const blob=await items[0].getType(type);window.__clipboard={type,bytes:Array.from(new Uint8Array(await blob.arrayBuffer()))};}}});window.__permissionRequests=[];const request=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=p=>{window.__permissionRequests.push(p);return request(p);};`);
@@ -411,12 +411,8 @@ try {
 
   const errors = [entries[0], { label: "Expired asset", kind: "image", path: "/expired.png" }, { label: "Damaged asset", kind: "image", path: "/damaged.png" }, { label: "External artwork", kind: "icon", path: "/external.svg" }];
   await seed(errors); await select(errors); await launch();
-  await panel.evaluate("window.__originalRequest=chrome.permissions.request;chrome.permissions.request=async p=>{window.__permissionRequests.push(p);return false;}");
   await prepare();
-  assert.match(await panel.evaluate("document.querySelector('.design-transfer__error').textContent"), /Website access was not granted/);
-  assert.equal(await panel.evaluate("document.querySelectorAll('.design-asset').length"), 0);
-  const requests = await panel.evaluate("window.__permissionRequests"); assert.deepEqual(requests.at(-1).origins, ["http://127.0.0.1/*"]);
-  await panel.evaluate("chrome.permissions.request=window.__originalRequest"); await prepare();
+  assert.deepEqual(await panel.evaluate("window.__permissionRequests"), [{ origins: ["http://127.0.0.1/*"] }], "Preparing files must request only their source hosts");
   assert.equal(await panel.evaluate("document.querySelectorAll('.design-transfer__failures li').length"), 3);
   assert.equal(await panel.evaluate("Boolean([...document.querySelectorAll('.design-transfer__footer button')].find(b=>b.textContent==='Copy SVG set'))"), false, "Failed assets were silently excluded");
   for (const width of [320,390,720]) await capture("errors",width);
@@ -441,7 +437,7 @@ try {
   await launch(); await prepare();
   assert.match(await panel.evaluate("document.querySelector('.design-transfer__error').textContent"),/up to 100/);
   assert.equal(await panel.evaluate("window.__permissionRequests.length"),0,"Oversize selections must fail before asking for any site permission");
-  console.log("PASS denied host access, expired/corrupt/external assets, explicit partial-set consent and manifest, recovery, cancellation, and the 100-asset limit.");
+  console.log("PASS scoped source host access, expired/corrupt/external assets, explicit partial-set consent and manifest, recovery, cancellation, and the 100-asset limit.");
 
   if (live) {
     const real = [

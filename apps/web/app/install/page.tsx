@@ -77,18 +77,13 @@ export default function InstallPage() {
           >
             <h2 id="install-next-title">Start with the page you are on.</h2>
             <p>
-              Click Stashwell’s icon in the Chrome toolbar to open the panel,
-              then choose <strong>Scan page</strong> to collect the active webpage.
-              Click the icon again to close the panel.
-              On a new tab, the panel follows the page automatically; choose Scan page
-              to collect it. Chrome may ask for access to that website. File actions
-              may ask for access to the selected resources’ hosts. The first scan also
-              enables automatic resource updates for that tab while the panel is
-              visible. Close Stashwell to stop updates. An unscanned tab waits
-              for its own manual scan; navigation within an authorized origin
-              can update automatically. Hiding or closing the panel ends this authorization. The extension
-              library and the web library keep separate local collections; use
-              a JSON archive to transfer items between them. See our{" "}
+              Open Stashwell from the toolbar and choose <strong>Scan page</strong> on the tab
+              you want to collect from. Chrome asks for access if the site has yet to be approved.
+              After the first scan, Stashwell updates the collection while that tab is active
+              on the same site, even with the panel closed. Use <strong>Scan page</strong> to start
+              collection in a different tab or on a different site.
+              The extension and web library keep separate local collections. Use a JSON archive
+              to transfer items between them. See our{" "}
               <a href="/privacy">privacy policy</a> for details.
             </p>
             <a href="/#extension-demo">

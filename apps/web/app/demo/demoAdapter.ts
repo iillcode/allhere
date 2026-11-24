@@ -29,10 +29,9 @@ export function createDemoAdapter(): LibraryAdapter {
   const listeners = new Set<(captures: PageCaptures) => void>();
 
   return {
-    getActivePage: async () => ({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0, accessEpoch: 0 }),
-    watchPage: async () => () => {},
+    getActivePage: async () => ({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0 }),
     subscribeActivePage: (listener) => {
-      listener({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0, accessEpoch: 0 });
+      listener({ tabId: 1, url: sampleCaptures[0].pageUrl, title: sampleCaptures[0].pageTitle, faviconUrl: sampleCaptures[0].faviconUrl, loading: false, revision: 0 });
       return () => {};
     },
     load: async () => captures,
@@ -44,7 +43,13 @@ export function createDemoAdapter(): LibraryAdapter {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    captureCurrentPage: async () =>
-      withLocalSampleImage(structuredClone(sampleCaptures))[0],
+    captureCurrentPage: async () => {
+      const capture = withLocalSampleImage(structuredClone(sampleCaptures))[0];
+      if (!captures.some(page => page.pageUrl === capture.pageUrl)) {
+        captures = [capture, ...captures];
+        listeners.forEach(listener => listener(captures));
+      }
+      return { id: capture.id, pageUrl: capture.pageUrl, hostname: capture.hostname, resourceCount: capture.resources.length };
+    },
   };
 }

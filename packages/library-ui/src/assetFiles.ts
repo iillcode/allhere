@@ -1,5 +1,34 @@
+import { loadDownloadFile } from "./downloadFiles";
+
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
+
+export type ImageSources = { url: string; variantUrls?: readonly string[] };
+
+export function imageSourceUrls({ url, variantUrls }: ImageSources): string[] {
+  const variants: readonly string[] = Array.isArray(variantUrls) ? variantUrls : [];
+  return [...new Set([url, ...variants].filter(value => {
+    if (typeof value !== "string") return false;
+    if (/^data:image\/[a-z0-9.+-]+[;,]/i.test(value)) return true;
+    try {
+      const source = new URL(value);
+      return !source.username && !source.password && (source.protocol === "http:" || source.protocol === "https:");
+    } catch { return false; }
+  }))];
+}
+
+export async function tryImageSources<T>(
+  source: ImageSources, load: (url: string) => Promise<T>, signal?: AbortSignal,
+): Promise<T> {
+  let failure: unknown;
+  for (const url of imageSourceUrls(source)) {
+    signal?.throwIfAborted();
+    try { return await load(url); }
+    catch (error) { failure ??= error; }
+  }
+  signal?.throwIfAborted();
+  throw failure ?? new Error("This resource does not have a supported image address.");
+}
 
 export type ImageFile = {
   blob: Blob;
@@ -141,8 +170,13 @@ export function sanitizeSvg(markup: string, options: { selfContained?: boolean; 
 
   if (options.fragment) {
     const target = document.getElementById(options.fragment);
-    if (!target) throw new Error("This SVG’s selected view is missing. Scan the source page again.");
-    if (target.localName === "view") {
+    const view = options.fragment.match(/^svgView\(viewBox\(([\d\s,+.e-]+)\)\)$/i)?.[1];
+    if (view) {
+      root.setAttribute("viewBox", view);
+      root.removeAttribute("width"); root.removeAttribute("height");
+    } else if (!target) {
+      if (options.selfContained) throw new Error("This SVG’s selected view is missing. Scan the source page again.");
+    } else if (target.localName === "view") {
       const viewBox = target.getAttribute("viewBox");
       if (viewBox) root.setAttribute("viewBox", viewBox);
       root.removeAttribute("width"); root.removeAttribute("height");
@@ -278,7 +312,7 @@ export async function loadImageFile(rawUrl: string, signal?: AbortSignal, option
   else if (text.trimStart().startsWith("<")) {
     if (original.size > 4 * 1024 * 1024) throw new Error("This SVG is larger than the 4 MB download limit.");
     let fragment: string | undefined;
-    if (options.selfContained && !rawUrl.startsWith("data:")) {
+    if (!/^data:/i.test(rawUrl)) {
       try { fragment = decodeURIComponent(new URL(rawUrl).hash.slice(1)) || undefined; }
       catch { throw new Error("This SVG has an invalid view address. Scan the source page again."); }
     }
@@ -290,8 +324,20 @@ export async function loadImageFile(rawUrl: string, signal?: AbortSignal, option
   return { blob, extension: format.extension, ...await decodedSize(blob), ...(svg ? { svg } : {}) };
 }
 
-export async function iconAsSvg(rawUrl: string): Promise<{ markup: string; embeddedRaster: boolean }> {
-  const file = await loadImageFile(rawUrl);
+export function loadImageSources(source: ImageSources, signal?: AbortSignal, options?: { selfContained?: boolean }): Promise<ImageFile> {
+  return tryImageSources(source, url => loadImageFile(url, signal, options), signal);
+}
+
+export async function loadOriginalImage(source: ImageSources, maxBytes = 256 * 1024 * 1024, limitMessage?: string) {
+  try { return await loadImageSources(source); }
+  catch (error) {
+    if (!(error instanceof Error) || !/unsupported file instead of an image/i.test(error.message)) throw error;
+    return tryImageSources(source, url => loadDownloadFile(url, "image", maxBytes, limitMessage));
+  }
+}
+
+export async function iconAsSvg(source: ImageSources): Promise<{ markup: string; embeddedRaster: boolean }> {
+  const file = await loadImageSources(source);
   if (file.svg) return { markup: file.svg, embeddedRaster: false };
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

@@ -1,4 +1,5 @@
 import type { ResourceKind } from "@stashwell/core";
+import { tryMediaSources } from "./mediaSources";
 
 const MIME_EXTENSIONS: Record<string, string> = {
   "application/pdf": "pdf", "application/zip": "zip", "application/json": "json",
@@ -27,7 +28,8 @@ const MIME_EXTENSIONS: Record<string, string> = {
 };
 
 export function extensionForMime(mime: string): string | undefined {
-  return MIME_EXTENSIONS[mime.split(";")[0].trim().toLowerCase()];
+  const type = mime.split(";")[0].trim().toLowerCase();
+  return Object.hasOwn(MIME_EXTENSIONS, type) ? MIME_EXTENSIONS[type] : undefined;
 }
 
 function signatureExtension(head: Uint8Array, text: string): string | undefined {
@@ -49,7 +51,7 @@ function signatureExtension(head: Uint8Array, text: string): string | undefined 
   return undefined;
 }
 
-function responseFilename(header: string | null): string | undefined {
+export function responseFilename(header: string | null): string | undefined {
   if (!header) return undefined;
   const encoded = header.match(/(?:^|;)\s*filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)?.[1];
   const plain = header.match(/(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;]*))/i);
@@ -61,19 +63,28 @@ function responseFilename(header: string | null): string | undefined {
   return name?.split(/[\\/]/).pop()?.replace(/[<>:"|?*\u0000-\u001f]/g, "-").trim() || undefined;
 }
 
-export type DownloadFile = { blob: Blob; extension?: string; filename?: string };
+export type DownloadFile = { blob: Blob; extension?: string };
 
 /** Read arbitrary file formats without decoding or changing their bytes. */
-export async function loadDownloadFile(rawUrl: string, kind: ResourceKind | "page", maxBytes: number, limitMessage = "This file exceeds the 256 MB download limit."): Promise<DownloadFile> {
+export async function loadDownloadFile(rawUrl: string, kind: ResourceKind | "page", maxBytes: number, limitMessage = "This file exceeds the 256 MB download limit.", signal?: AbortSignal,
+  media?: { mimeType?: string; variantUrls?: readonly string[]; previewSeconds?: number }): Promise<DownloadFile> {
   let url: URL;
   try { url = new URL(rawUrl); } catch { throw new Error("This file address is invalid. Scan its page again."); }
   if (!(["http:", "https:"].includes(url.protocol) || (url.protocol === "data:" && /^data:image\//i.test(rawUrl))) || url.username || url.password) {
     throw new Error("This resource does not have a downloadable file address.");
   }
-  if (/\.(m3u8|mpd)$/i.test(url.pathname)) throw new Error("This is a stream playlist, not a complete file.");
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   const timer = window.setTimeout(() => controller.abort(), 120_000);
   try {
+    if (kind === "video" || kind === "audio") {
+      const { prepareMedia } = await import("./mediaFiles");
+      return await tryMediaSources(url.href, media?.mimeType, media?.variantUrls, controller.signal, source =>
+        prepareMedia(source, kind, { signal: controller.signal, maxBytes, limitMessage, previewSeconds: media?.previewSeconds }));
+    }
+    if (/\.(m3u8|mpd)$/i.test(url.pathname)) throw new Error("This address points to a stream playlist.");
     const response = await fetch(url.href, { credentials: "omit", mode: "cors", referrerPolicy: "no-referrer", signal: controller.signal });
     if (!response.ok) { await response.body?.cancel(); throw new Error(`The file host returned HTTP ${response.status}. Scan its page again for a fresh link.`); }
     if (Number(response.headers.get("content-length") || 0) > maxBytes) {
@@ -112,10 +123,13 @@ export async function loadDownloadFile(rawUrl: string, kind: ResourceKind | "pag
     const extension = signatureExtension(head, text) || filenameExtension
       || (urlExtension && !["bin", "dat", "download"].includes(urlExtension) ? urlExtension : undefined)
       || mimeExtension || urlExtension;
-    return { blob, extension, filename };
+    return { blob, extension };
   } catch (error) {
     if (controller.signal.aborted) throw new Error("File preparation timed out. Try again.");
     if (error instanceof TypeError) throw new Error("The file could not be fetched. Check the extension's site access or open its source page.");
     throw error;
-  } finally { window.clearTimeout(timer); }
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
 }

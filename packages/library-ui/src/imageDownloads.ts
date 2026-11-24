@@ -1,4 +1,4 @@
-import { iconAsSvg, loadImageFile } from "./assetFiles";
+import { iconAsSvg, loadImageSources, type ImageSources } from "./assetFiles";
 
 export type ImageDownloadFormat = "original" | "png" | "jpeg" | "webp";
 export type IconDownloadFormat = ImageDownloadFormat | "svg";
@@ -6,12 +6,12 @@ export type DownloadFormats = { images: ImageDownloadFormat; icons: IconDownload
 
 export const originalDownloadFormats: DownloadFormats = { images: "original", icons: "original" };
 
-export async function convertImageDownload(rawUrl: string, format: Exclude<IconDownloadFormat, "original">): Promise<{ blob: Blob; extension: string }> {
+export async function convertImageDownload(source: ImageSources, format: Exclude<IconDownloadFormat, "original">): Promise<{ blob: Blob; extension: string }> {
   if (format === "svg") {
-    const { markup } = await iconAsSvg(rawUrl);
+    const { markup } = await iconAsSvg(source);
     return { blob: new Blob([markup], { type: "image/svg+xml" }), extension: "svg" };
   }
-  const file = await loadImageFile(rawUrl);
+  const file = await loadImageSources(source);
   if (file.width * file.height > 40_000_000 || file.width > 16_384 || file.height > 16_384) {
     throw new Error("This image is too large to convert. Choose Original to download it.");
   }

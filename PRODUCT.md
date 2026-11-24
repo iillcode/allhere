@@ -28,7 +28,7 @@ The product includes a Chrome side panel for working beside the current webpage 
 
 ## Capabilities and Constraints
 
-- Gather images, links, media, and file/resource URLs present in a webpage. A tab’s first manual scan enables automatic updates while that tab is active and Stashwell is visible; closing the panel ends this authorization.
+- Start collection when the user scans a tab and approves its website if Chrome asks. Refresh the active tab on that site in the background, including when the side panel is closed.
 - Keep captured images in the webpage’s rendered reading order, including CSS backgrounds, shadow roots, and accessible frames. Refresh that order on rescans while preserving saved choices and older collected resources.
 - Preserve source image dimensions in previews and downloads. Offer image format conversion for single downloads and bulk ZIPs.
 - Show resource details and clear security signals, especially for links.

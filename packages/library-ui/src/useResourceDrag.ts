@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type DragEvent, type HTMLAttributes } from "react";
 import type { ResourceKind } from "@stashwell/core";
 import { loadResourceFile } from "./resourceFiles";
-import { requestWebsiteAccess, websiteOrigins } from "./websiteAccess";
+import { requestWebsiteAccess } from "./websiteAccess";
+import { playlistType, sourcePageStream } from "./mediaSources";
 
-type Item = { id: string; url: string; kind: ResourceKind | "page" };
+type Item = { id: string; url: string; kind: ResourceKind | "page"; resource?: { variantUrls?: string[]; mimeType?: string } };
 type Entry = { file?: File; pending?: Promise<File>; touched: number; error?: string };
 type Ticket = { file: File; expires: number };
 const prefix = "application/x-stashwell-file-";
@@ -20,7 +21,7 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
   const controllers = useRef(new Set<AbortController>());
   const [statuses, setStatuses] = useState<Record<string, "loading" | "ready" | "error">>({});
   const mounted = useRef(true);
-  const keyFor = (item: T) => `${item.kind}\u0000${item.url}`;
+  const keyFor = (item: T) => `${item.kind}\u0000${item.url}\u0000${filename(item)}`;
   const update = (key: string, status: "loading" | "ready" | "error") => { if (mounted.current) setStatuses(previous => ({ ...previous, [key]: status })); };
 
   useEffect(() => {
@@ -56,20 +57,21 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
   }, []);
 
   const prepare = async (item: T, announce = false): Promise<File | undefined> => {
-    if (item.kind === "link" || item.kind === "page") return;
+    if (item.kind === "link" || item.kind === "page" || sourcePageStream(item.kind, item.url, item.resource)) return;
+    if (!announce && playlistType(item.url, item.resource?.mimeType)) return;
     const key = keyFor(item);
     let entry = cache.current.get(key);
     if (entry?.file) { entry.touched = Date.now(); if (announce) notify(`${entry.file.name} is ready. Drag it into an upload field.`); return entry.file; }
     if (entry?.error && !announce) return;
     if (announce) notify("Preparing the file for dragging…");
-    if (announce && window.location.protocol === "chrome-extension:") {
+    if (announce) {
       try {
-        if (!await requestWebsiteAccess(websiteOrigins([item.url]))) {
-          notify("Website access was not granted. Choose Prepare for dragging to try again.");
+        if (!await requestWebsiteAccess([item.url, ...(item.resource?.variantUrls ?? [])])) {
+          notify("Website access was declined. Choose Prepare for dragging to try again.");
           return;
         }
       } catch (error) {
-        notify(error instanceof Error ? error.message : "Website access could not be requested. Choose Prepare for dragging again.");
+        notify(error instanceof Error ? error.message : "Website access could not be requested.");
         return;
       }
       entry = cache.current.get(key);
@@ -84,7 +86,7 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
       const controller = new AbortController();
       controllers.current.add(controller);
       update(key, "loading");
-      current.pending = loadResourceFile(item.url, item.kind, controller.signal).then(({ blob, extension }) => {
+      current.pending = loadResourceFile(item.url, item.kind, controller.signal, item.resource?.variantUrls, item.resource?.mimeType).then(({ blob, extension }) => {
         if (!mounted.current || controller.signal.aborted) throw new Error("File preparation was cancelled.");
         const file = new File([blob], filename(item, extension), { type: blob.type, lastModified: Date.now() });
         current.file = file; current.pending = undefined;
@@ -124,7 +126,7 @@ export function useResourceDrag<T extends Item>(filename: (item: T, extension?: 
 
   const props = (item: T): HTMLAttributes<HTMLElement> => {
     const status = statuses[keyFor(item)];
-    const isUrl = item.kind === "link" || item.kind === "page";
+    const isUrl = item.kind === "link" || item.kind === "page" || sourcePageStream(item.kind, item.url, item.resource);
     return {
       draggable: true,
       "aria-description": isUrl ? "Drag to insert this URL" : status === "ready" ? "Ready to drag into an upload field" : "Hover to prepare this file, then drag into an upload field",

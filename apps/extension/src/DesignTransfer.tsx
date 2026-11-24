@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpRight, Check, Copy, FileImage, GripVertical, LoaderCircle, Send, SlidersHorizontal, X } from "lucide-react";
 import type { LibrarySelectionItem, SelectionActionProps } from "@stashwell/library-ui";
-import { iconNeedsDarkBackground, requestWebsiteAccess, websiteOrigins } from "@stashwell/library-ui/asset-tools";
+import { iconNeedsDarkBackground, requestWebsiteAccess } from "@stashwell/library-ui/asset-tools";
 import { ApplicationSelect } from "./ApplicationSelect";
 import {
   applicationInstructions, createAssetPack, createPngBoard, createSvgBoard, designApplications, designSelection,
@@ -107,11 +107,8 @@ function DesignTransferDialog({ selection, onClose, saveFile, fileDragProps }: S
     setPreparing(true); setError(""); setMessage(""); setPartialApproved(false);
     setProgress({ done: 0, total: summary.groups.length });
     try {
-      // Ask only for the selected source hosts, synchronously from this click.
-      // Cached or inline images do not need another permission request.
-      const urls = summary.groups.map(group => group[0]!.url).filter(url => !cacheRef.current.has(url));
-      const access = requestWebsiteAccess(websiteOrigins(urls));
-      if (!await access) throw new Error("Website access was not granted. Choose Prepare set to try again.");
+      const urls = summary.groups.flatMap(([item]) => cacheRef.current.has(item.url) ? [] : [item.url, ...(item.variantUrls ?? [])]);
+      if (!await requestWebsiteAccess(urls)) throw new Error("Website access was declined. Choose Prepare set to try again.");
       if (controller.signal.aborted) return;
       const prepared = await prepareDesignAssets(selection, options, cacheRef.current,
         (done, total) => { if (controllerRef.current === controller) setProgress({ done, total }); }, controller.signal);

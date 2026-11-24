@@ -1,4 +1,4 @@
-import { loadImageFile, type ImageFile } from "@stashwell/library-ui/asset-tools";
+import { loadImageFile, loadImageSources, matchingFilename, resourceExtension, type ImageFile } from "@stashwell/library-ui/asset-tools";
 import type { LibrarySelectionItem } from "@stashwell/library-ui";
 import { zipSync, strToU8 } from "fflate";
 
@@ -159,10 +159,9 @@ async function preparedBlob(source: ImageFile, options: TransferOptions, signal?
   return { blob: new Blob([new XMLSerializer().serializeToString(root)], { type: "image/svg+xml" }), width: outerWidth, height: outerHeight, vector: true };
 }
 
-function filenameFor(label: string, extension: string, used: Set<string>) {
-  let stem = label.replace(/\.[a-z0-9]{1,6}$/i, "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80) || "asset";
-  if (/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/i.test(stem)) stem = `asset-${stem}`;
-  let name = `${stem}.${extension}`;
+function filenameFor(item: LibrarySelectionItem, extension: string, used: Set<string>) {
+  let name = matchingFilename(item.label, extension, resourceExtension(item.url));
+  const stem = name.slice(0, -(extension.length + 1));
   let index = 2;
   while (used.has(name.toLowerCase())) name = `${stem} (${index++}).${extension}`;
   used.add(name.toLowerCase());
@@ -190,7 +189,7 @@ export async function prepareDesignAssets(
     try {
       let source = cache.get(item.url);
       if (!source) {
-        source = await loadImageFile(item.url, signal, { selfContained: true });
+        source = await loadImageSources(item, signal, { selfContained: true });
         checkAbort(signal);
         const cachedBytes = [...cache.values()].reduce((sum, file) => sum + file.blob.size, 0);
         if (cachedBytes + source.blob.size <= MAX_SET_BYTES) cache.set(item.url, source);
@@ -206,7 +205,7 @@ export async function prepareDesignAssets(
       else {
         if (preparedBytes + prepared.blob.size > MAX_SET_BYTES) throw new Error("The prepared set exceeds 64 MB. Choose a smaller size or fewer assets.");
         preparedBytes += prepared.blob.size;
-        const file = new File([prepared.blob], filenameFor(item.label, prepared.vector ? "svg" : "png", names), { type: prepared.blob.type });
+        const file = new File([prepared.blob], filenameFor(item, prepared.vector ? "svg" : "png", names), { type: prepared.blob.type });
         const asset = { file, width: prepared.width, height: prepared.height, vector: prepared.vector, sources: [...sources] };
         hashes.set(hash, asset); result.assets.push(asset);
       }

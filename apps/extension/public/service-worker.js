@@ -1,4 +1,5 @@
-importScripts("download-worker.js");
+import "./download-worker.js";
+import "./capture-worker.js";
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })

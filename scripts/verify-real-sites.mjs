@@ -66,10 +66,6 @@ try {
   const worker = await until(async () => (await controller.send("Target.getTargets")).targetInfos.find(target => target.type === "service_worker" && target.url.endsWith("service-worker.js")), "Extension did not load");
   const { client: panel } = await open(`chrome-extension://${new URL(worker.url).hostname}/index.html`);
   await until(() => panel.evaluate("Boolean(document.querySelector('.button--scan'))"), "Panel did not load");
-  // The manual scan path is real; hold watcher notifications to compare snapshots.
-  await panel.evaluate(`(()=>{const connect=chrome.tabs.connect.bind(chrome.tabs);chrome.tabs.connect=(...args)=>{const port=connect(...args);if(args[1]?.name==='stashwell.auto-updates')port.onMessage.addListener=()=>{};return port;};
-    const execute=chrome.scripting.executeScript.bind(chrome.scripting);window.__scans=0;
-    chrome.scripting.executeScript=async options=>{const result=await execute(options);if(options.func){window.__scans++;window.__lastScan=result;}return result;};})()`);
   for (const url of urls) {
     const result = { url };
     let targetId;
@@ -85,10 +81,9 @@ try {
       assert.ok(finalUrl.startsWith("https://") || finalUrl.startsWith("http://"), "Browser could not reach this site");
       const scan = async () => {
         await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), "Scan remained busy");
-        const previous = await panel.evaluate("window.__scans");
-        await panel.evaluate("document.querySelector('.button--scan').click()");
-        await until(() => panel.evaluate(`window.__scans>${previous}&&document.querySelector('.button--scan')?.disabled===false`), `Scan failed: ${url}`);
-        return panel.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>(data['allhere.library.v1']||[]).find(page=>page.pageUrl===${JSON.stringify(finalUrl)}))`);
+        const result = await panel.evaluate(`(async()=>{const [tab]=await chrome.tabs.query({active:true,currentWindow:true});return chrome.runtime.sendMessage({type:'stashwell.capture.refresh',tabId:tab.id,url:${JSON.stringify(finalUrl)}});})()`);
+        assert.ok(result?.capture, result?.error || `Scan failed: ${url}`);
+        return panel.evaluate(`fixtureHistory.read().then(data=>(data['allhere.library.v1']||[]).find(page=>page.pageUrl===${JSON.stringify(finalUrl)}))`);
       };
       const first = await scan();
       assert.ok(first?.resources.length > 5, "Scan must find a usable app, not a network/challenge page");

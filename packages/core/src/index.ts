@@ -34,8 +34,9 @@ export type CapturedResource = {
   url: string;
   /** Stable source for an explicitly related group of responsive images. */
   identityUrl?: string;
-  /** Sources declared by the same img/srcset/picture element. */
+  /** Alternative files declared by the same picture or media element. */
   variantUrls?: string[];
+  posterUrl?: string;
   pageUrl: string;
   pageTitle: string;
   label: string;
@@ -382,6 +383,9 @@ export function parseArchive(value: unknown): LibraryArchive {
             ...((resource.kind === "image" || resource.kind === "icon") && validVisualUrl(resource.identityUrl) ? { identityUrl: resource.identityUrl } : {}),
             ...((resource.kind === "image" || resource.kind === "icon") && Array.isArray(resource.variantUrls)
               ? { variantUrls: [...new Set(resource.variantUrls.filter(validVisualUrl))] } : {}),
+            ...((resource.kind === "video" || resource.kind === "audio") && Array.isArray(resource.variantUrls)
+              ? { variantUrls: [...new Set(resource.variantUrls.filter(validMediaUrl))] } : {}),
+            ...(resource.kind === "video" && validPosterUrl(resource.posterUrl) ? { posterUrl: resource.posterUrl } : {}),
             pageUrl: pageUrl.href,
             pageTitle,
             label: resource.label,
@@ -425,7 +429,12 @@ export function mergeCaptures(
   const byPage = new Map<string, PageCapture>();
   for (const capture of [...current, ...incoming]) {
     const previous = byPage.get(capture.pageUrl);
-    const resources = dedupeResources([...(previous?.resources ?? []), ...capture.resources]);
+    if (!previous) {
+      // Deduplication already preserves discovery order for a single scan.
+      byPage.set(capture.pageUrl, { ...capture, resources: dedupeResources(capture.resources) });
+      continue;
+    }
+    const resources = dedupeResources([...previous.resources, ...capture.resources]);
     const byIdentity = new Map(resources.flatMap(resource => resourceIdentityKeys(resource).map(key => [key, resource] as const)));
     const ordered = new Set<CapturedResource>();
     for (const resource of capture.resources) {
@@ -436,7 +445,7 @@ export function mergeCaptures(
     }
     byPage.set(capture.pageUrl, {
       ...capture,
-      id: previous?.id ?? capture.id,
+      id: previous.id ?? capture.id,
       resources: [...ordered, ...resources.filter(resource => !ordered.has(resource))],
     });
   }
@@ -446,8 +455,21 @@ export function mergeCaptures(
   );
 }
 
+export function validMediaUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return ACTIVE_SCHEMES.has(url.protocol) && !url.username && !url.password;
+  } catch { return false; }
+}
+
+export function validPosterUrl(value: unknown): value is string {
+  return typeof value === "string" && (/^data:image\//i.test(value) || validMediaUrl(value));
+}
+
 function validVisualUrl(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
+  if (/^data:/i.test(value)) return /^data:image\//i.test(value);
   try {
     const protocol = new URL(value).protocol;
     return protocol === "http:" || protocol === "https:" || protocol === "blob:"
@@ -458,6 +480,8 @@ function validVisualUrl(value: unknown): value is string {
 // Only URL parameters that describe a resized representation are collapsed.
 // Signed IDs and other query parameters stay part of the resource identity.
 function visualUrlIdentity(rawUrl: string): string {
+  // Embedded images are opaque payloads, often much larger than a web URL.
+  if (/^data:/i.test(rawUrl)) return `visual:${rawUrl}`;
   try {
     const url = new URL(rawUrl);
     // Data payloads are opaque: '?' and '#' can be part of the image itself.
@@ -487,11 +511,14 @@ export function resourceIdentity(resource: ResourceIdentitySource): string {
 /** Only explicitly declared responsive alternatives supplement URL identity. */
 export function resourceIdentityKeys(resource: ResourceIdentitySource): string[] {
   if (resource.kind !== "image" && resource.kind !== "icon") return [resourceIdentity(resource)];
-  return [...new Set([
-    resourceIdentity(resource),
-    visualUrlIdentity(resource.url),
-    ...(Array.isArray(resource.variantUrls) ? resource.variantUrls.filter(validVisualUrl).map(visualUrlIdentity) : []),
-  ])];
+  const primary = resource.identityUrl !== resource.url && validVisualUrl(resource.identityUrl) ? resource.identityUrl : resource.url;
+  if (primary === resource.url && !resource.variantUrls?.length) return [visualUrlIdentity(primary)];
+
+  const urls = new Set([primary, resource.url]);
+  if (Array.isArray(resource.variantUrls)) for (const url of resource.variantUrls) {
+    if (!urls.has(url) && validVisualUrl(url)) urls.add(url);
+  }
+  return [...new Set(Array.from(urls, visualUrlIdentity))];
 }
 
 export function dedupeResources(resources: CapturedResource[]): CapturedResource[] {
@@ -537,20 +564,26 @@ export function dedupeResources(resources: CapturedResource[]): CapturedResource
       const newArea = (resource.width ?? 0) * (resource.height ?? 0);
       const preferNew = visual ? newArea > oldArea : true;
       const winner = preferNew ? resource : existing;
-      const descriptive = (label: string) => !/^(?:image|icon|page icon|inline svg icon|background image|background icon)$/i.test(label);
       existing = {
         ...winner,
         id: existing.id,
         kind: visual && (existing.kind === "icon" || resource.kind === "icon") ? "icon" : winner.kind,
-        label: descriptive(winner.label) ? winner.label : descriptive(resource.label) ? resource.label : descriptive(existing.label) ? existing.label : winner.label,
+        label: hasResourceName(winner.label) ? winner.label : hasResourceName(resource.label) ? resource.label : hasResourceName(existing.label) ? existing.label : winner.label,
         alt: winner.alt || resource.alt || existing.alt,
         description: winner.description || resource.description || existing.description,
+        ...(winner.kind === "video" || winner.kind === "audio" ? {
+          posterUrl: winner.posterUrl || existing.posterUrl,
+          variantUrls: winner.variantUrls ?? existing.variantUrls,
+          mimeType: winner.mimeType || existing.mimeType,
+        } : {}),
         saved: existing.saved || resource.saved || undefined,
         capturedAt: resource.capturedAt,
       };
     }
+    if (existing.kind === "video" || existing.kind === "audio") return existing;
     const { identityUrl: _identityUrl, variantUrls: _variantUrls, ...result } = existing;
     if (existing.kind !== "image" && existing.kind !== "icon") return result;
+    if (group.length === 1 && !existing.identityUrl && !existing.variantUrls?.length) return result;
     const variantUrls = [...new Set(group.flatMap(resource => [
       ...(Array.isArray(resource.variantUrls) ? resource.variantUrls : []),
       resource.identityUrl, resource.url,
@@ -575,6 +608,43 @@ export function upsertPageCapture(
 
 export function flattenResources(captures: PageCapture[]): CapturedResource[] {
   return captures.flatMap((capture) => capture.resources);
+}
+
+const genericResourceLabel = /^(?:image|photo|picture|graphic|thumbnail|icon|page icon|inline svg icon|background (?:image|icon)|svg image layer|font icon|video poster image|video|audio|media source|file|embedded file|document|stylesheet|script|link|download(?: file)?|web font)$/i;
+
+function cleanResourceName(value?: string): string {
+  return typeof value === "string" ? value.replace(/[\s\u0000-\u001f]+/g, " ").trim().slice(0, 280) : "";
+}
+
+export function hasResourceName(value?: string): boolean {
+  const name = cleanResourceName(value);
+  return !!name && !genericResourceLabel.test(name) && !/^(?:[\w-]+:\/\/|data:|blob:|(?:application|audio|font|image|text|video)\/[\w.+-]+$)/i.test(name);
+}
+
+export function resourceName(resource: Pick<CapturedResource, "label" | "alt" | "description" | "kind" | "url">, position?: number): string {
+  const { label, description, alt, url, kind } = resource;
+  const visual = kind === "image" || kind === "icon";
+  const semantic = visual && !/ · .+ font icon$/i.test(description || "") ? [description, alt, label] : [label, alt, description];
+  const name = cleanResourceName(semantic.find(hasResourceName));
+  if (name) return name;
+
+  if (kind !== "link") try {
+    const source = new URL(url);
+    if (source.protocol === "http:" || source.protocol === "https:") {
+      const decode = (value: string) => {
+        try { return decodeURIComponent(value); } catch { return value; }
+      };
+      const fragment = visual ? decode(source.hash.slice(1)) : "";
+      if (/^[\p{L}\d][\p{L}\d ._:-]*$/u.test(fragment)) return cleanResourceName(fragment.replace(/[-_]+/g, " "));
+      const filename = cleanResourceName(decode(source.pathname.split("/").filter(Boolean).at(-1) || ""));
+      if (hasResourceName(filename)) return filename;
+    }
+  } catch { /* Use the available page label for imported and inline resources. */ }
+
+  const fallback = cleanResourceName(label);
+  if (kind === "link" && fallback) return fallback;
+  const type = genericResourceLabel.test(fallback) ? fallback : labelForResource(kind);
+  return position === undefined ? type : `${type} ${position + 1}`;
 }
 
 export function labelForResource(kind: ResourceKind): string {

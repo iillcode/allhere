@@ -91,7 +91,6 @@
 .stashwell-shell--extension .notice { padding-block: 8px; }
 .stashwell-shell--extension .bulk-selection__count { font-size: var(--text-label); }
 .stashwell-shell--extension .bulk-selection__count strong { font-size: var(--text-title); }
-.stashwell-shell--extension .download-tray .download-tray__access { font-size: var(--text-caption); }
 
 .stashwell-shell--extension :is(.content-heading__title p, .page-scope, .page-scope__selection small,
   .page-scope__option-copy small, .page-scope__count, .resource-album__title > span, .resource-album__caption,

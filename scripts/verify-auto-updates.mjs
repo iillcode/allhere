@@ -1,51 +1,21 @@
-// Built-extension checks. The extension-tab fixture models a visible side panel;
-// only the local fixture host is pre-granted. Native missing access is tested too.
+// Check production permissions and the first-scan boundary in an isolated browser.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createServer as portServer } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { localFixtureExtension } from "./extension-fixture.mjs";
+import { Cdp, delay, localFixtureExtension, until } from "./extension-fixture.mjs";
 
-const delay = ms => new Promise(done => setTimeout(done, ms));
-async function until(check, message, timeout = 20_000) {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) { const result = await check(); if (result) return result; await delay(100); }
-  throw new Error(message);
-}
-class Cdp {
-  constructor(url) {
-    this.socket = new WebSocket(url); this.next = 0; this.pending = new Map();
-    this.socket.addEventListener("message", event => {
-      const value = JSON.parse(event.data), entry = this.pending.get(value.id);
-      if (!entry) return;
-      this.pending.delete(value.id); clearTimeout(entry.timer);
-      value.error ? entry.reject(Error(value.error.message)) : entry.done(value.result);
-    });
-  }
-  async ready() { if (this.socket.readyState !== WebSocket.OPEN) await new Promise(done => this.socket.addEventListener("open", done, { once: true })); }
-  send(method, params = {}) {
-    const id = ++this.next;
-    return new Promise((done, reject) => {
-      this.pending.set(id, { done, reject, timer: setTimeout(() => reject(Error(`${method} timed out`)), 25_000) });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression, userGesture = false) {
-    const value = await this.send("Runtime.evaluate", { expression, userGesture, awaitPromise: true, returnByValue: true });
-    if (value.exceptionDetails) throw Error(value.exceptionDetails.exception?.description ?? value.exceptionDetails.text);
-    return value.result.value;
-  }
-  close() { for (const entry of this.pending.values()) clearTimeout(entry.timer); this.socket.close(); }
-}
 const sharp = createRequire(createRequire(import.meta.url).resolve("next/package.json", { paths: [resolve("apps/web")] }))("sharp");
 const png = await sharp({ create: { width: 200, height: 140, channels: 3, background: "#0b57d0" } }).png().toBuffer();
+let pendingImage;
 const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
+  if (path === "/pending.png" && !pendingImage) { pendingImage = response; return; }
   if (path.endsWith(".png")) { response.writeHead(200, { "Content-Type": "image/png" }).end(png); return; }
   if (path === "/favicon.svg") { response.writeHead(200, { "Content-Type": "image/svg+xml" }).end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#0b57d0"/></svg>'); return; }
   const image = (name, title, attributes = '') => `<img src="/order-${name}.png" alt="${title}" width="200" height="140" ${attributes}>`;
@@ -67,6 +37,7 @@ const server = createServer((request, response) => {
       <iframe src="/order-frame" width="220" height="470"></iframe><video poster="/order-poster.png" aria-label="Poster image" width="200" height="140"></video>
       ${image('end', 'Last image', 'id="last-image"')}<iframe src="/order-frame?second=1" width="220" height="300"></iframe>
       <div style="width:200px;height:140px;background-image:url(/order-background.png)"></div>${image('hidden', 'Hidden image', 'hidden style="display:none"')}
+      <span id="capture-clock">0</span><a id="capture-link" href="/named-link">Original link name</a>
       <script>document.querySelector('#ordered-shadow').attachShadow({mode:'open'}).innerHTML=${JSON.stringify(image('shadow', 'Shadow image'))};(async()=>{const blob=await(await fetch('/order-blob.png')).blob();const image=document.querySelector('#blob');image.src=URL.createObjectURL(blob);await image.decode();window.__orderReady=true;})();</script>`);
     return;
   }
@@ -76,13 +47,17 @@ await new Promise(done => server.listen(0, "127.0.0.1", done));
 const base = `http://127.0.0.1:${server.address().port}`;
 const debugPort = await new Promise(done => { const s = portServer(); s.listen(0, "127.0.0.1", () => { const port = s.address().port; s.close(() => done(port)); }); });
 const profile = await mkdtemp(join(tmpdir(), "stashwell-auto-"));
-const extension = await localFixtureExtension(profile);
+const manifest = JSON.parse(await readFile(resolve("apps/extension/out/manifest.json"), "utf8"));
+assert.equal(manifest.host_permissions, undefined);
+assert.equal(manifest.content_scripts, undefined);
+assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
+const extension = await localFixtureExtension(profile, [base]);
 const browser = spawn(process.env.STASHWELL_BROWSER_PATH ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", [
   `--user-data-dir=${profile}`, `--remote-debugging-port=${debugPort}`, "--headless=new", "--no-first-run", "--no-default-browser-check",
   "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
   `--disable-extensions-except=${extension}`, `--load-extension=${extension}`, "about:blank",
 ], { windowsHide: true, stdio: "ignore" });
-let controller, panel, source, other;
+let controller, worker, panel, source, other;
 async function connectTarget(targetId) {
   const target = await until(async () => (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find(item => item.id === targetId), "Target did not open");
   const client = new Cdp(target.webSocketDebuggerUrl); await client.ready(); return client;
@@ -90,90 +65,66 @@ async function connectTarget(targetId) {
 try {
   const version = await until(async () => { try { return await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json(); } catch { return null; } }, "Browser did not start");
   controller = new Cdp(version.webSocketDebuggerUrl); await controller.ready();
-  const worker = await until(async () => (await controller.send("Target.getTargets")).targetInfos.find(item => item.url.endsWith("service-worker.js")), "Extension did not start");
-  const { targetId } = await controller.send("Target.createTarget", { url: `chrome-extension://${new URL(worker.url).hostname}/index.html` });
-  panel = await connectTarget(targetId);
-  const modelPanel = `(()=>{if(window.__autoModelInstalled||!globalThis.chrome?.scripting?.executeScript)return;
-    window.__panelVisibility='visible';Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>window.__panelVisibility});
-    window.__captureCount=0;window.__activeCaptures=0;window.__maxCaptures=0;window.__permissionRequests=0;
-    const script=chrome.scripting.executeScript.bind(chrome.scripting);chrome.scripting.executeScript=async options=>{
-      if(!options.func)return script(options);
-      window.__captureCount++;window.__activeCaptures++;window.__maxCaptures=Math.max(window.__maxCaptures,window.__activeCaptures);
-      try {if(window.__failCapture)throw new Error("Fixture refresh failed");const result=await script(options);if(window.__holdNext){window.__holdNext=false;await new Promise(resolve=>window.__releaseAuto=resolve);}return result;}
-      finally{window.__activeCaptures--;}
-    };const permission=chrome.permissions.request.bind(chrome.permissions);chrome.permissions.request=options=>{window.__permissionRequests++;return permission(options);};window.__autoModelInstalled=true;})();`;
-  await panel.send("Page.enable");
-  await panel.send("Page.addScriptToEvaluateOnNewDocument", { source: modelPanel });
-  await panel.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 800, deviceScaleFactor: 1, mobile: false });
-  await panel.send("Page.reload");
-  await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), "Panel did not load");
-  await panel.evaluate(modelPanel);
-  await panel.evaluate("document.dispatchEvent(new Event('visibilitychange'))");
-  const sourceId = (await controller.send("Target.createTarget", { url: base + "/gallery" })).targetId;
-  source = await connectTarget(sourceId); await source.send("Page.bringToFront");
-  await until(() => panel.evaluate(`chrome.tabs.query({active:true,currentWindow:true}).then(([tab])=>tab?.url===${JSON.stringify(base + "/gallery")}&&tab.status==='complete')`), "Source did not load");
-  const read = () => panel.evaluate("chrome.storage.local.get('allhere.library.v1').then(data=>data['allhere.library.v1']||[])");
+  const versionTargets = () => controller.send("Target.getTargets");
+  const workerTarget = await until(async () => (await versionTargets()).targetInfos.find(item => item.url.endsWith("/service-worker.js")), "Extension did not start");
+  worker = await connectTarget(workerTarget.targetId);
+  await until(() => worker.evaluate("typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id)"), "Extension worker did not initialize");
+  const panelUrl = `chrome-extension://${new URL(workerTarget.url).hostname}/index.html`;
+  const read = () => worker.evaluate("fixtureHistory.read().then(data=>data['allhere.library.v1']||[])");
   const current = async (url = base + "/gallery") => (await read()).find(page => page.pageUrl === url);
-  const count = () => panel.evaluate("window.__captureCount");
-  const state = () => panel.evaluate("document.querySelector('.button--scan')?.title.includes('Automatic updates are enabled.') ? 'on' : 'manual'");
+  const add = (name, client = source) => client.evaluate(`(()=>{const image=new Image();image.src='/${name}.png';image.alt=${JSON.stringify(name)};image.width=200;image.height=140;document.body.append(image);})()`);
+  const contains = async (name, url) => (await current(url))?.resources.some(resource => [resource.url, ...(resource.variantUrls ?? [])].some(source => source.endsWith(`/${name}.png`)));
+  const waitResource = (name, url) => until(() => contains(name, url), `Automatic update missed ${name}`);
+  const openPanel = () => controller.send("Target.createTarget", { url: panelUrl, background: true }).then(({ targetId }) => connectTarget(targetId));
   const click = selector => panel.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`, true);
   const menu = async label => {
     await click(".library-menu__trigger");
     await until(() => panel.evaluate("Boolean(document.querySelector('.library-menu__panel'))"), "Library menu did not open");
     await panel.evaluate(`[...document.querySelectorAll('.library-menu__item')].find(button=>button.textContent.trim().startsWith(${JSON.stringify(label)})).click()`, true);
   };
-  const add = (name, client = source) => client.evaluate(`(()=>{const image=new Image();image.src='/${name}.png';image.alt=${JSON.stringify(name)};image.width=200;image.height=140;document.body.append(image);})()`);
-  const contains = async (name, url) => (await current(url))?.resources.some(resource => [resource.url, ...(resource.variantUrls ?? [])].some(source => source.endsWith(`/${name}.png`)));
-  const waitResource = (name, url) => until(() => contains(name, url), `Automatic update missed ${name}`);
+  const watchPermissionRequests = client => client.evaluate("globalThis.__permissionRequests=[];chrome.permissions.request=options=>{globalThis.__permissionRequests.push({origins:options.origins,gesture:navigator.userActivation?.isActive});return Promise.resolve(false);}");
+  await watchPermissionRequests(worker);
+  source = await connectTarget((await controller.send("Target.createTarget", { url: base + "/gallery" })).targetId);
+  await source.send("Page.bringToFront");
+  await until(() => source.evaluate("document.readyState==='complete' && !!document.querySelector('#image-0')"), "Gallery did not load");
+  await add("before-panel");
+  await delay(2800);
+  assert.equal(await current(), undefined, "An existing host grant must not enable a tab before its first scan");
+  panel = await openPanel();
+  const expectScan = state => until(() => panel.evaluate(`document.querySelector('.button--scan')?.dataset.scanState===${JSON.stringify(state)} && !document.querySelector('.button--scan').disabled`), `Scan button did not show ${state}`);
+  await expectScan("needed");
+  await watchPermissionRequests(panel);
+  assert.match(await panel.evaluate("document.querySelector('#scan-update-hint').textContent"), /Scan enables updates/);
   const manual = async () => {
-    await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false&&window.__activeCaptures===0"), "Scan is still busy");
+    await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), "Scan is still busy");
     await click(".button--scan");
-    await until(async () => (await state()) === "on", "Manual scan did not authorize automatic updates");
+    await until(() => panel.evaluate("document.querySelector('.notice')?.textContent.includes('saved from')"), "Manual refresh did not complete");
   };
-  const record = async name => {
-    await mkdir(resolve('.impeccable/review'), { recursive: true });
-    // Model a native side panel while foregrounding its extension-tab fixture
-    // for compositor capture. Functional checks use the actual tab afterwards.
-    await panel.evaluate("(async()=>{window.__shotQuery=chrome.tabs.query.bind(chrome.tabs);const tabs=await window.__shotQuery({active:true,currentWindow:true});chrome.tabs.query=options=>options.active?Promise.resolve(tabs):window.__shotQuery(options);})()");
-    try {
-      await panel.send('Page.bringToFront');
-      for (const width of [320,390,720]) {
-        await panel.send('Emulation.setDeviceMetricsOverride',{width,height:800,deviceScaleFactor:1,mobile:false});
-        await panel.evaluate('window.scrollTo(0,0)');
-        const bounds=await panel.evaluate("(()=>{const header=document.querySelector('.topbar').getBoundingClientRect(),menu=document.querySelector('.library-menu__trigger').getBoundingClientRect();return {fits:document.documentElement.scrollWidth<=innerWidth,height:header.height,edge:Math.abs(header.right-menu.right)}})()");
-        assert.ok(bounds.fits&&bounds.height<=65&&bounds.edge<=1,`Header overflow at ${width}: ${JSON.stringify(bounds)}`);
-        assert.equal(await panel.evaluate("Boolean(document.querySelector('.auto-updates'))"), false, 'The automatic-update status row must stay removed after scanning');
-        const shot=await panel.send('Page.captureScreenshot',{format:'png'});
-        await writeFile(resolve(`.impeccable/review/auto-${name}-${width}.png`),Buffer.from(shot.data,'base64'));
-        await panel.evaluate('window.scrollTo(0,1000);new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-        const tabs = await panel.evaluate("(()=>{const header=document.querySelector('.topbar').getBoundingClientRect(),tab=document.querySelector('[data-resource-tab]').getBoundingClientRect(),hit=document.elementFromPoint(tab.left+tab.width/2,tab.top+tab.height/2);return {headerBottom:header.bottom,tabTop:tab.top,visible:tab.bottom<=innerHeight&&Boolean(hit?.closest('[data-resource-tab]'))}})()");
-        assert.ok(tabs.tabTop >= tabs.headerBottom - 1 && tabs.visible, `Resource tabs must stay visible and clickable below the header at ${width} (${name}): ${JSON.stringify(tabs)}`);
-        if (name === 'on') {
-          const scrolled = await panel.send('Page.captureScreenshot', { format: 'png' });
-          await writeFile(resolve(`.impeccable/review/auto-tabs-scrolled-${width}.png`), Buffer.from(scrolled.data, 'base64'));
-        }
-      }
-    } finally {
-      await source.send('Page.bringToFront');
-      await panel.evaluate('chrome.tabs.query=window.__shotQuery;delete window.__shotQuery');
-      await panel.send('Emulation.setDeviceMetricsOverride',{width:390,height:800,deviceScaleFactor:1,mobile:false});
-    }
-  };
-  await delay(1800);
-  assert.equal(await count(), 0, "Opening the panel or a tab must not scan it");
-  assert.equal(await state(), "manual");
-  assert.equal(await panel.evaluate("Boolean(document.querySelector('.auto-updates'))"), false, 'The pre-scan explanatory header section must be removed');
-  assert.match(await panel.evaluate("document.querySelector('#scan-update-hint').textContent"), /Scan enables auto-updates/, 'The existing source line must retain the short scan disclosure');
-  await record('disclosure');
+  // The source is declared after the page loads and stays pending until released.
+  // A scan can save the URL immediately, then update its natural dimensions.
+  await source.evaluate("const pending=new Image(50,40);pending.src='/pending.png';pending.alt='Pending image';document.body.append(pending);");
+  await until(() => pendingImage, "The deferred image request did not start");
+  const startedAt = performance.now();
   await manual();
-  await until(async () => (await current())?.resources.length >= 12, "First manual capture did not save");
-  await record('on');
+  const scanTime = performance.now() - startedAt;
+  assert.ok(scanTime < 1_150, `Scan stalled on an unfinished image (${Math.round(scanTime)}ms)`);
+  await expectScan("ready");
+  await waitResource("pending");
+  assert.equal(await source.evaluate("document.querySelector('img[alt=\"Pending image\"]').complete"), false);
+  pendingImage.writeHead(200, { "Content-Type": "image/png" }).end(png);
+  await until(async () => (await current())?.resources.some(resource => resource.alt === "Pending image" && resource.width === 200 && resource.height === 140),
+    "Finishing the pending image did not refresh its dimensions");
+  await waitResource("before-panel");
+  assert.equal((await current()).faviconUrl, base + "/favicon.svg");
+  assert.match(await panel.evaluate("document.querySelector('#scan-update-hint').textContent"), /Updates automatically/);
   const first = (await current()).resources.find(resource => resource.url.endsWith("/image-0.png"));
-  await panel.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>{data['allhere.library.v1'][0].resources.find(resource=>resource.id===${JSON.stringify(first.id)}).saved=true;return chrome.storage.local.set(data);})`);
+  await panel.evaluate(`fixtureHistory.read().then(data=>{data['allhere.library.v1'][0].resources.find(resource=>resource.id===${JSON.stringify(first.id)}).saved=true;return fixtureHistory.write(data);})`);
   await click('[data-resource-tab="images"]'); await click('[aria-label="List view"]');
   await panel.evaluate("window.scrollTo(0,160)");
   const scroll = await panel.evaluate("window.scrollY");
   await add("automatic-image"); await waitResource("automatic-image");
+  await source.evaluate("window.__detached=new Image();window.__detached.src='/detached-auto.png'");
+  await waitResource("detached-auto");
   const retained = (await current()).resources.find(resource => resource.id === first.id);
   assert.ok(retained?.saved, "Automatic refresh must retain bookmarks and resource IDs");
   assert.equal(await panel.evaluate("document.querySelector('[aria-selected=true][data-resource-tab]').dataset.resourceTab"), "images");
@@ -207,128 +158,74 @@ try {
   await source.evaluate("const image=new Image();image.src='/frame-later.png';image.alt='Frame later';image.width=200;image.height=140;document.querySelector('iframe').contentDocument.body.append(image)");
   await waitResource("frame-later");
 
-  await panel.evaluate('window.__failCapture=true'); await add('failed-auto-image');
-  await until(async()=>await state()==='manual','An automatic capture failure must require a new manual scan');
-  await until(()=>panel.evaluate("document.querySelector('.notice')?.textContent.includes('Automatic updates stopped')"),'Automatic failure must explain how to recover');
-  assert.equal(await panel.evaluate("document.querySelector('.button--scan').dataset.scanState"),'needed','Recovery must show a manual-scan state');
-  const failedCount=await count(); await add('after-failed-auto'); await delay(2200);
-  assert.equal(await count(),failedCount,'Failed updates must not retry in a loop without another scan');
-  await panel.evaluate('window.__failCapture=false'); await manual();
-  await waitResource('failed-auto-image'); await waitResource('after-failed-auto');
+  await menu("Manage");
+  await add("while-managing"); await waitResource("while-managing");
+  const clickDelete = async selector => {
+    await until(() => panel.evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), "Delete button did not render");
+    await click(selector);
+  };
+  await click('[aria-label="Manage items from Auto gallery"]');
+  await clickDelete('[aria-label="Delete Image 0"]');
+  await until(async () => !(await current())?.resources.some(resource => resource.url.endsWith("/image-0.png")), "Item deletion failed");
+  await add("after-item-deletion"); await waitResource("after-item-deletion");
+  assert.ok(!(await current()).resources.some(resource => resource.url.endsWith("/image-0.png")), "Background updates restored a deleted item");
+  await click('[aria-label="Back to captured pages"]');
+  await clickDelete('[aria-label="Delete page Auto gallery"]');
+  await until(async () => !await current(), "Page deletion failed");
+  await add("after-page-deletion"); await delay(3200);
+  assert.equal(await current(), undefined, "Background capture restored a deleted page");
+  await menu("All resources");
+  await manual(); await waitResource("after-page-deletion");
 
-  await panel.evaluate("window.__holdNext=true"); await add("manual-overlap");
-  await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Overlap checkpoint did not start");
-  const overlapCount = await count();
-  await click(".button--scan"); await delay(300);
-  assert.equal(await count(), overlapCount, "Manual scans must wait for an automatic capture to finish");
-  await panel.evaluate("window.__releaseAuto();delete window.__releaseAuto");
-  await waitResource("manual-overlap");
-  await until(() => panel.evaluate("document.querySelector('.button--scan').disabled===false"), "Manual scan remained busy");
-
-  await panel.evaluate("window.__holdNext=true"); await add("pending-auto");
-  await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Automatic capture did not reach checkpoint");
-  const beforeManage = await read();
-  await menu('Manage');
-  await panel.evaluate("window.__releaseAuto();delete window.__releaseAuto");
-  await delay(1600);
-  assert.deepEqual(await read(), beforeManage, 'Opening Manage must discard an unfinished automatic capture');
-  const managePendingCount = await count(); await add('managed-pending-image'); await delay(2200);
-  assert.equal(await count(), managePendingCount, 'Managing the library must hold automatic capture');
-  await menu('All resources'); await waitResource('pending-auto'); await waitResource('managed-pending-image');
-  await panel.evaluate("window.__panelVisibility='hidden';document.dispatchEvent(new Event('visibilitychange'))"); await delay(300);
-  const hiddenCount = await count(); await add("hidden-image"); await delay(2200);
-  assert.equal(await count(), hiddenCount, "Hidden panels must not start captures");
-  assert.ok(!await contains("hidden-image"));
-  await panel.evaluate("window.__panelVisibility='visible';document.dispatchEvent(new Event('visibilitychange'))");
-  await until(async () => await state() === "manual", "A retained panel document must not preserve consent after hiding");
-  assert.equal(await panel.evaluate("document.querySelector('.button--scan').dataset.scanState"), "needed", "Showing the panel again must indicate that a manual scan is needed");
-  await delay(1200); assert.ok(!await contains("hidden-image"), "Showing a hidden panel must not restart scanning");
-  await manual();
-  await waitResource("hidden-image");
+  assert.deepEqual(await panel.evaluate("window.__permissionRequests"), [], "First scan on an approved site should reuse the grant");
+  const panelTarget = (await versionTargets()).targetInfos.find(target => target.url === panelUrl);
+  await controller.send("Target.closeTarget", { targetId: panelTarget.targetId });
+  panel.close(); panel = undefined;
+  await source.send("Page.bringToFront");
+  await add("after-panel-close"); await waitResource("after-panel-close");
 
   const otherUrl = base + "/gallery?second=1";
   other = await connectTarget((await controller.send("Target.createTarget", { url: otherUrl })).targetId);
-  await other.send("Page.bringToFront"); await until(async () => await state() === "manual", "A new tab inherited authorization");
-  const inactiveCount = await count(); await add("inactive-image"); await delay(2200);
-  assert.equal(await count(), inactiveCount, "Inactive tabs must not scan");
-  assert.equal(await current(otherUrl), undefined, "Host permission alone must not authorize another tab");
-  await manual(); await add("second-auto", other); await waitResource("second-auto", otherUrl);
-  await source.send("Page.bringToFront"); await waitResource("inactive-image");
-  const nextUrl = base + "/gallery?next=1";
-  await source.send("Page.navigate", { url: nextUrl });
-  await until(async () => Boolean(await current(nextUrl)), "Same-origin navigation did not update the authorized tab");
-
-  await menu("Manage");
-  await until(() => panel.evaluate("Boolean(document.querySelector('.library-manager'))"), "Manage did not open");
-  const manageCount = await count(); await add("manage-image"); await delay(2200);
-  assert.equal(await count(), manageCount, "Manage must suspend automatic capture");
-  await click('[aria-label="Manage items from Auto gallery"]');
-  await click('[aria-label="Delete Image 0"]');
-  await until(async () => !(await current(nextUrl)).resources.some(resource => resource.url.endsWith("/image-0.png")), "Item deletion failed");
-  await menu("All resources");
-  await waitResource("manage-image", nextUrl);
-  assert.ok(!(await current(nextUrl)).resources.some(resource => resource.url.endsWith("/image-0.png")), "Automatic updates restored a deleted item");
-  await menu("Manage");
-  await click('[aria-label="Delete page Auto gallery"]');
-  await until(async () => !await current(nextUrl), "Page deletion failed");
-  await menu("All resources");
-  const deletedCount = await count(); await add("after-delete"); await delay(2200);
-  assert.equal(await count(), deletedCount, "Deleted pages must hold automatic updates");
-  assert.equal(await current(nextUrl), undefined, "An automatic update restored a deleted page");
-  await manual(); await waitResource("after-delete", nextUrl);
-
-  await other.send('Page.bringToFront');
-  await until(async()=>await state()==='on','The second authorized tab did not resume');
-  await source.send('Page.navigate',{url:base.replace('127.0.0.1','localhost')+'/gallery?background=1'});
-  await until(()=>source.evaluate("document.readyState==='complete'&&location.hostname==='localhost'"),'Background navigation did not finish');
-  await source.send('Page.navigate',{url:nextUrl});
-  await until(()=>source.evaluate("document.readyState==='complete'&&location.hostname==='127.0.0.1'"),'Background return did not finish');
-  await add('after-background-origin');
-  await source.send('Page.bringToFront');
-  await until(async()=>await state()==='manual','An origin change in an inactive tab must end its authorization');
-  await delay(1800);
-  assert.ok(!await contains('after-background-origin',nextUrl),'A file-host grant must not restore expired consent');
-  await manual(); await waitResource('after-background-origin',nextUrl);
-
-  const beforeForeign = await count();
-  await source.send("Page.navigate", { url: base.replace("127.0.0.1", "localhost") + "/gallery" });
-  await until(async () => await state() === "manual", "Cross-origin navigation must end consent");
-  await delay(1800); assert.equal(await count(), beforeForeign, "An ungranted origin must not scan");
-  await source.send("Page.navigate", { url: nextUrl });
-  await delay(2200); assert.equal(await state(), "manual", "Returning to a previously accessible host must not restore consent");
-  assert.equal(await count(), beforeForeign);
+  await other.send("Page.bringToFront");
+  panel = await openPanel();
+  await expectScan("needed");
+  await watchPermissionRequests(panel);
+  await delay(2800);
+  assert.equal(await current(otherUrl), undefined, "Another tab must ask for its own first scan on the same site");
   await manual();
+  await waitResource("image-0", otherUrl);
+  await add("inactive-image"); await delay(3200);
+  assert.ok(!await contains("inactive-image"), "Inactive tabs must wait until they become active");
+  await source.send("Page.bringToFront"); await waitResource("inactive-image");
 
-  await menu("Manage");
-  await panel.evaluate("window.__holdNext=true");
+  // Pause a worker capture after injection, then navigate before it can save.
+  const staleUrl = base + "/gallery?stale=1";
+  const nextUrl = base.replace("127.0.0.1", "localhost") + "/gallery?next=1";
+  await worker.evaluate(`globalThis.__executeCapture=chrome.scripting.executeScript.bind(chrome.scripting); chrome.scripting.executeScript=async options=>{
+    const result=await __executeCapture(options);
+    if(options.func && result.some(frame=>frame.result?.pageUrl===${JSON.stringify(staleUrl)})) {
+      await new Promise(resolve=>globalThis.__releaseStale=resolve);
+    }
+    return result;
+  };`);
+  await source.send("Page.navigate", { url: staleUrl });
+  await until(() => worker.evaluate("typeof __releaseStale==='function'"), "Capture did not reach the navigation checkpoint");
+  await source.send("Page.navigate", { url: nextUrl });
+  await until(() => source.evaluate(`document.readyState==='complete'&&location.href===${JSON.stringify(nextUrl)}`), "Cross-origin page did not load");
+  await worker.evaluate("__releaseStale();chrome.scripting.executeScript=__executeCapture;");
+  await expectScan("needed");
   await click(".button--scan");
-  await until(() => panel.evaluate("typeof window.__releaseAuto==='function'"), "Manual scan did not reach the panel-session checkpoint");
-  await panel.evaluate("window.__panelVisibility='hidden';document.dispatchEvent(new Event('visibilitychange'));window.__panelVisibility='visible';document.dispatchEvent(new Event('visibilitychange'))");
-  await panel.evaluate("window.__releaseAuto();delete window.__releaseAuto");
-  await until(() => panel.evaluate("document.querySelector('.button--scan').disabled===false"), "Pending manual scan did not finish");
-  assert.equal(await state(), "manual", "An old manual scan must not reauthorize a panel session that ended while it was pending");
-  assert.equal(await panel.evaluate("document.querySelector('.button--scan').dataset.scanState"), "needed", "An old scan must not restore the fresh-scan indicator after panel hide");
-  const endedSessionCount = await count();
-  await add("after-ended-session"); await delay(2200);
-  assert.equal(await count(), endedSessionCount, "A scan from an ended panel session must not restart automatic capture");
-  await menu("All resources");
-  await manual(); await waitResource("after-ended-session", nextUrl);
-  assert.ok(await panel.evaluate("window.__maxCaptures<=1"), "Automatic captures must not overlap");
-  assert.equal(await panel.evaluate("window.__permissionRequests"), 0, "Automatic updates must never request site access");
-  const beforeReopen = await read();
-  await panel.send("Page.reload");
-  await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), "Panel did not reopen");
-  await panel.evaluate(modelPanel);
-  await delay(1800); assert.equal(await count(), 0, "Reopening the panel must require a new manual scan");
-  assert.equal(await state(), "manual");
-  assert.deepEqual(await read(), beforeReopen, "Reopening the panel must not change the stored collection");
-  assert.equal(await panel.evaluate("window.__permissionRequests"), 0);
-  const manifest = await panel.evaluate("chrome.runtime.getManifest()");
-  assert.ok(manifest.permissions.includes("tabs"), "The panel must read active-tab metadata after switching tabs");
+  await until(() => panel.evaluate("document.querySelector('.notice')?.textContent.includes('Website access was declined')"), "A declined grant did not show the scan notice");
+  assert.deepEqual(await panel.evaluate("window.__permissionRequests"), [{ origins: ["http://localhost/*"], gesture: true }]);
+  assert.equal(await current(nextUrl), undefined, "A different site must not be captured without approval");
+  assert.equal(await current(staleUrl), undefined, "An outdated capture was saved after navigation");
+  assert.deepEqual(await worker.evaluate("globalThis.__permissionRequests"), [], "Background collection must never request permission");
 
   const orderUrl = base + '/order';
   await source.send('Page.navigate', { url: orderUrl });
   await until(() => source.evaluate("document.readyState==='complete'&&window.__orderReady"), 'Ordered fixture did not finish loading');
+  await expectScan("needed");
+  assert.equal(await current(orderUrl), undefined, "Returning to an approved site after leaving its origin must require a scan");
   await manual();
   const names = page => page.resources.filter(resource => resource.kind === 'image').map(resource => resource.description || resource.alt || resource.label);
   const initialOrder = ['Background first', 'Blob second', 'Flex third', 'Row left', 'Row right', 'Regular image', 'Shadow image', 'Pseudo before frame', 'Frame before', 'Nested frame', 'Frame after', 'Poster image', 'Last image', 'Second frame before', 'Second frame after', 'Hidden image'];
@@ -337,13 +234,12 @@ try {
   const ordered = await current(orderUrl);
   assert.ok(ordered.resources.every(resource => !('position' in resource)), 'Temporary layout coordinates must not be stored');
   const stable = ordered.resources.find(resource => resource.alt === 'Regular image');
-  await panel.evaluate(`chrome.storage.local.get('allhere.library.v1').then(data=>{data['allhere.library.v1'].find(page=>page.pageUrl===${JSON.stringify(orderUrl)}).resources.find(resource=>resource.id===${JSON.stringify(stable.id)}).saved=true;return chrome.storage.local.set(data);})`);
+  await panel.evaluate(`fixtureHistory.read().then(data=>{data['allhere.library.v1'].find(page=>page.pageUrl===${JSON.stringify(orderUrl)}).resources.find(resource=>resource.id===${JSON.stringify(stable.id)}).saved=true;return fixtureHistory.write(data);})`);
   const albumNames = await panel.evaluate(`[...document.querySelectorAll('[data-album-page="${ordered.id}"] [data-album-category="images"] .resource-album__tile')].map(button=>button.getAttribute('aria-label').replace(/^Preview /,''))`);
   assert.deepEqual(albumNames, initialOrder.slice(0, 10), 'Image album must keep source order');
   await click('[data-resource-tab="images"]'); await click('[aria-label="Grid view"]');
   await until(() => panel.evaluate(`document.querySelectorAll('.resource-card').length===${initialOrder.length}`), 'Ordered grid did not render');
   assert.deepEqual(await panel.evaluate("[...document.querySelectorAll('.resource-card')].map(button=>button.getAttribute('aria-label'))"), initialOrder, 'Image grid must keep source order');
-  await record('order');
   await click('[aria-label="List view"]');
   assert.deepEqual(await panel.evaluate("[...document.querySelectorAll('.table-name strong')].map(element=>element.textContent)"), initialOrder, 'Image list must keep source order');
 
@@ -352,7 +248,6 @@ try {
   await click('.button--scan');
   await waitOrder(manualOrder, 'Manual rescan retained the old order or appended a new first image');
   await until(() => panel.evaluate("document.querySelector('.button--scan').disabled===false"), 'Ordered manual scan stayed busy');
-  assert.equal(await state(), 'on', 'Manual refresh must keep automatic updates enabled');
   await source.evaluate("document.querySelector('#background').style.order='4'");
   const autoOrder = [...manualOrder];
   autoOrder.splice(autoOrder.indexOf('Background first'), 1);
@@ -364,18 +259,25 @@ try {
   await source.evaluate("document.body.setAttribute('class','same-layout')");
   await delay(4200);
   assert.equal((await current(orderUrl)).capturedAt, unchangedAt, 'Unchanged ordering must not rewrite the library');
+  await worker.evaluate(`globalThis.__beforeCount=chrome.scripting.executeScript.bind(chrome.scripting);globalThis.__scans=0;
+    chrome.scripting.executeScript=options=>{if(options.func)__scans++;return __beforeCount(options);};`);
+  await source.evaluate("let ticks=0;window.__ticker=setInterval(()=>{document.querySelector('#capture-clock').textContent=String(++ticks);},90)");
+  await delay(4_800);
+  assert.equal(await worker.evaluate("__scans"), 0, "An unrelated ticking counter triggered a full scan");
+  await source.evaluate("clearInterval(window.__ticker);document.querySelector('#capture-link').textContent='Updated link name';");
+  await until(async () => (await current(orderUrl))?.resources.some(resource => resource.label === "Updated link name"), "Link text changes must still refresh names");
+  await worker.evaluate("chrome.scripting.executeScript=__beforeCount");
   await source.evaluate("document.querySelector('#flex-third').remove()");
   const retainedOrder = [...autoOrder.filter(name => name !== 'Flex third'), 'Flex third'];
   await waitOrder(retainedOrder, 'Previously captured missing images must be retained after current page images');
   const persisted = await current(orderUrl);
+  assert.equal(await panel.evaluate('window.__permissionRequests.length'), 1, 'Ordering must never request additional site access');
   await panel.send('Page.reload');
   await until(() => panel.evaluate("document.querySelector('.button--scan')?.disabled===false"), 'Panel did not reload after ordering');
   assert.deepEqual(names(await current(orderUrl)), names(persisted), 'Image order must persist after reopening');
-  assert.equal(await state(), 'manual', 'Ordering must not change scan authorization');
-  assert.equal(await panel.evaluate('window.__permissionRequests'), 0, 'Ordering must never request additional site access');
-  console.log("PASS automatic updates and webpage image order: CSS flex/row order, backgrounds, pseudo-elements, blobs, shadow roots, nested/sibling frames, duplicate first appearances, hidden images, albums/grid/list, manual and order-only automatic updates, stable bookmarks/IDs, unchanged-scan no-op, retained older images, reopen persistence, consent, automatic loading without controls, management exclusions, error recovery, and zero permission prompts.");
+  console.log("PASS first scan per tab, permissions and navigation, background updates, pending images, idle text, resource names and order, and deletion exclusions.");
 } finally {
   try { await controller?.send("Browser.close"); } catch { /* Already closed. */ }
-  for (const client of [panel, source, other, controller]) client?.close();
+  for (const client of [panel, source, other, worker, controller]) client?.close();
   browser.kill(); server.closeAllConnections(); server.close();
 }

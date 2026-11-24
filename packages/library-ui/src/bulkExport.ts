@@ -1,13 +1,16 @@
 import type { ResourceKind } from "@stashwell/core";
 import { Zip, ZipPassThrough } from "fflate";
+import { loadOriginalImage } from "./assetFiles";
 import { loadDownloadFile } from "./downloadFiles";
 import { convertImageDownload, originalDownloadFormats, type DownloadFormats } from "./imageDownloads";
 
 type BulkEntry = {
   kind: ResourceKind | "page";
   url: string;
+  variantUrls?: readonly string[];
+  mimeType?: string;
   label: string;
-  filename: (extension?: string, sourceFilename?: string) => string;
+  filename: (extension?: string) => string;
 };
 
 const MAX_ZIP_BYTES = 256 * 1024 * 1024;
@@ -62,12 +65,14 @@ export async function createResourceZip(
         filename = entry.filename("url");
       } else {
         const format = entry.kind === "icon" ? formats.icons : entry.kind === "image" ? formats.images : "original";
-        const file = format === "original"
-          ? await loadDownloadFile(entry.url, entry.kind, MAX_ZIP_BYTES - bytesAdded, "The ZIP reached its 256 MB size limit.")
-          : await convertImageDownload(entry.url, format);
+        const remaining = MAX_ZIP_BYTES - bytesAdded;
+        const limit = "The ZIP reached its 256 MB size limit.";
+        const file = format !== "original" ? await convertImageDownload(entry, format)
+          : entry.kind === "image" || entry.kind === "icon" ? await loadOriginalImage(entry, remaining, limit)
+            : await loadDownloadFile(entry.url, entry.kind, remaining, limit, undefined, entry);
         if (bytesAdded + file.blob.size > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
         bytes = new Uint8Array(await file.blob.arrayBuffer());
-        filename = entry.filename(file.extension, "filename" in file ? file.filename : undefined);
+        filename = entry.filename(file.extension);
       }
       if (bytesAdded + bytes.byteLength > MAX_ZIP_BYTES) throw new Error("The ZIP reached its 256 MB size limit.");
       addFile(filename, bytes);
