@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ChromeIcon, Icon } from "./landing/LandingIcons";
 import { LandingHeader, ResourceExplorer } from "./landing/LandingInteractions";
 import { ProductDemo } from "./landing/ProductDemo";
+import { CHROME_WEB_STORE_URL } from "./landing/store";
 import styles from "./landing/home.module.css";
 
 export const metadata: Metadata = {
@@ -14,11 +15,11 @@ const questions = [
   { question: "Does Stashwell scan pages automatically?", answer: "Choose Scan page to start collecting in each tab. Chrome asks for access if the website has yet to be approved. Stashwell then updates the collection while that tab is active on the same site, even with the panel closed. Collections stay in your browser." },
   { question: "Where is my collection stored?", answer: "Your collection is stored locally in the browser or extension where you created it. The extension and web library have separate storage. Export a JSON archive to keep a backup or move a collection between them; they don’t sync automatically." },
   { question: "Does a link signal mean a destination is safe?", answer: "No. Stashwell checks visible URL patterns on your device and explains clues that may deserve a closer look. These local heuristics are context, not a safety guarantee or an external reputation check." },
-  { question: "How do I install the Chrome extension?", answer: "Stashwell is currently a developer preview for desktop Chrome 114 or later. Download the ZIP, extract it, turn on Developer mode in Chrome’s extensions page, and choose Load unpacked to select the extracted folder.", setup: true },
+  { question: "How do I install the Chrome extension?", answer: "Stashwell is available on the Chrome Web Store for desktop Chrome. Open the listing, choose Add to Chrome, and confirm when Chrome asks. Stashwell then appears in your toolbar, and Chrome keeps it up to date automatically.", setup: true },
 ];
 
 function DownloadButton() {
-  return <a className={styles.primaryButton} href="/downloads/stashwell-extension.zip" download="stashwell-extension.zip"><ChromeIcon />Download for Chrome</a>;
+  return <a className={styles.primaryButton} href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer"><ChromeIcon />Add to Chrome</a>;
 }
 
 function Brand() {
@@ -55,7 +56,7 @@ export default function HomePage() {
             <h1 id="hero-title">Good finds.<br /><span>All in one place.</span></h1>
             <p className={styles.heroDescription}>Your working library for the web. Choose Scan page to collect images, links, fonts, and files from the active webpage, and keep this tab’s collection updated while the panel is open. Browse everything locally beside your work.</p>
             <div className={styles.heroActions}><DownloadButton /><a className={styles.textLink} href="#extension-demo">See Stashwell in action<Icon name="arrow" /></a></div>
-            <p className={styles.installNote}>For desktop Chrome 114+ · Developer preview <span aria-hidden="true">·</span> <a href="/install">Manual setup guide</a></p>
+            <p className={styles.installNote}>Available on the <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">Chrome Web Store</a> <span aria-hidden="true">·</span> <a href="/install">Install guide</a></p>
           </div>
         </section>
 
@@ -129,14 +130,14 @@ export default function HomePage() {
 
         <section className={`${styles.section} ${styles.faq}`} id="questions" aria-labelledby="questions-title">
           <div className={`${styles.container} ${styles.faqGrid}`}>
-            <div className={styles.faqIntro}><h2 id="questions-title">Good questions.<br /><span>Clear answers.</span></h2><p>A few things to know before your first scan.</p><a className={styles.textLink} href="/install">Read the setup guide<Icon name="arrow" /></a></div>
-            <div className={styles.questions}>{questions.map(({question, answer, setup}) => <details key={question} name="stashwell-faq"><summary>{question}<Icon name="chevron" /></summary><div className={styles.answer}><p>{answer}</p>{setup && <a className={styles.textLink} href="/install">See the setup steps<Icon name="arrow" /></a>}</div></details>)}</div>
+            <div className={styles.faqIntro}><h2 id="questions-title">Good questions.<br /><span>Clear answers.</span></h2><p>A few things to know before your first scan.</p><a className={styles.textLink} href="/install">Read the install guide<Icon name="arrow" /></a></div>
+            <div className={styles.questions}>{questions.map(({question, answer, setup}) => <details key={question} name="stashwell-faq"><summary>{question}<Icon name="chevron" /></summary><div className={styles.answer}><p>{answer}</p>{setup && <a className={styles.textLink} href="/install">See the install steps<Icon name="arrow" /></a>}</div></details>)}</div>
           </div>
         </section>
 
-        <section className={styles.close} aria-labelledby="close-title"><div className={styles.container}><img src="/icons/stashwell.svg" width="56" height="56" alt="" /><h2 id="close-title">Your next good find<br />belongs here.</h2><p>Make a little room for everything worth keeping.</p><DownloadButton /><span className={styles.closeNote}>Desktop Chrome · Developer preview · <a href="/install">Manual setup</a></span></div></section>
+        <section className={styles.close} aria-labelledby="close-title"><div className={styles.container}><img src="/icons/stashwell.svg" width="56" height="56" alt="" /><h2 id="close-title">Your next good find<br />belongs here.</h2><p>Make a little room for everything worth keeping.</p><DownloadButton /><span className={styles.closeNote}>Available on the <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">Chrome Web Store</a> <span aria-hidden="true">·</span> <a href="/install">Install guide</a></span></div></section>
       </main>
-      <footer className={styles.footer}><div className={styles.container}><div className={styles.footerMain}><Brand /><p>Keep the useful parts of the web close.</p><a className={styles.backToTop} href="#main">Back to top<Icon name="arrow" /></a></div><div className={styles.footerBottom}><span>Stashwell. A working library for the web.</span><nav aria-label="Footer navigation"><a href="/install">Setup guide</a><a href="#questions">Questions</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></div></div></footer>
+      <footer className={styles.footer}><div className={styles.container}><div className={styles.footerMain}><Brand /><p>Keep the useful parts of the web close.</p><a className={styles.backToTop} href="#main">Back to top<Icon name="arrow" /></a></div><div className={styles.footerBottom}><span>Stashwell. A working library for the web.</span><nav aria-label="Footer navigation"><a href="/install">Install guide</a><a href="#questions">Questions</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav></div></div></footer>
     </div>
   );
 }

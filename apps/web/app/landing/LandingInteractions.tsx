@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { CHROME_WEB_STORE_URL } from "./store";
 import styles from "./interactions.module.css";
 
 const navigation = [
@@ -65,12 +66,13 @@ export function LandingHeader() {
         <div className={styles.headerActions}>
           <a
             className={styles.download}
-            href="/downloads/stashwell-extension.zip"
-            download="stashwell-extension.zip"
+            href={CHROME_WEB_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={() => setOpen(false)}
           >
             Get Stashwell
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-3-3 3 3 3-3M4 13v4h12v-4" /></svg>
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 13 13 7M8 7h5v5" /></svg>
           </a>
           <button
             ref={toggle}

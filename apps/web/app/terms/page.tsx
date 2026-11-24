@@ -3,19 +3,19 @@ import LegalPage from "../LegalPage";
 
 export const metadata: Metadata = {
   title: "Terms — Stashwell",
-  description: "Terms for using the Stashwell developer preview.",
+  description: "Terms for using the Stashwell Chrome extension and web library.",
 };
 
 export default function TermsPage() {
   return (
     <LegalPage
       title="Terms of use"
-      description="These terms describe the current Stashwell browser extension preview."
+      description="These terms describe the Stashwell browser extension and web library."
       sections={[
         {
-          title: "Developer preview",
+          title: "About Stashwell",
           paragraphs: [
-            "Stashwell is a product preview. Features, supported resources, and availability may change as the product is developed.",
+            "Stashwell is a Chrome extension and web library for collecting web resources. Features, supported resources, and availability may change as the product is developed.",
           ],
         },
         {

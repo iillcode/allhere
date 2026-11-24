@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { CHROME_WEB_STORE_URL } from "../landing/store";
 
 export const metadata: Metadata = {
   title: "Install Stashwell for Chrome",
-  description: "Download the Stashwell Chrome extension developer preview and install it in Chrome.",
+  description: "Add the Stashwell Chrome extension from the Chrome Web Store and start collecting web resources.",
 };
 
 export default function InstallPage() {
@@ -26,50 +27,60 @@ export default function InstallPage() {
         <div className="landing-container landing-install__inner">
           <h1>Install Stashwell in Chrome.</h1>
           <p className="landing-install__lead">
-            For Chrome 114 or later. Download the developer preview, unzip it,
-            and add it to Chrome. You can then open Stashwell beside supported
-            webpages using the browser toolbar.
+            For desktop Chrome. Add Stashwell from the Chrome Web Store, then
+            open it beside supported webpages using the browser toolbar.
           </p>
           <a
             className="landing-button landing-button--primary"
-            href="/downloads/stashwell-extension.zip"
-            download="stashwell-extension.zip"
+            href={CHROME_WEB_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
           >
             <span className="landing-chrome-icon" aria-hidden="true" />
-            Download for Chrome
+            Add to Chrome
           </a>
           <ol className="landing-install__steps">
             <li>
               <span className="landing-install__number">01</span>
               <div>
-                <h2>Unzip the download</h2>
-                <p>Extract all files into one folder and keep that folder in place.</p>
+                <h2>Open the Chrome Web Store</h2>
+                <p>
+                  Visit the{" "}
+                  <a
+                    href={CHROME_WEB_STORE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Stashwell listing
+                  </a>{" "}
+                  on the Chrome Web Store in desktop Chrome.
+                </p>
               </div>
             </li>
             <li>
               <span className="landing-install__number">02</span>
               <div>
-                <h2>Open Chrome extensions</h2>
+                <h2>Add to Chrome</h2>
                 <p>
-                  Enter <code>chrome://extensions</code> in the address bar and
-                  turn on <strong>Developer mode</strong>.
+                  Choose <strong>Add to Chrome</strong> on the listing and
+                  confirm the installation when Chrome asks.
                 </p>
               </div>
             </li>
             <li>
               <span className="landing-install__number">03</span>
               <div>
-                <h2>Load Stashwell</h2>
+                <h2>Pin Stashwell</h2>
                 <p>
-                  Choose <strong>Load unpacked</strong> and select the extracted
-                  folder containing <code>manifest.json</code>.
+                  Open the extensions menu in the Chrome toolbar and pin
+                  Stashwell so it stays one click away.
                 </p>
               </div>
             </li>
           </ol>
           <p className="landing-install__footnote">
-            This is a manually installed preview. After an update, download the
-            new ZIP, replace the extracted files, and reload Stashwell in Chrome.
+            Chrome keeps Stashwell up to date automatically. You can manage or
+            remove it anytime at <code>chrome://extensions</code>.
           </p>
           <section
             className="landing-install__next"

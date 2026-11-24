@@ -37,7 +37,7 @@ export default function LegalPage({
         </div>
       </header>
       <main className="landing-container landing-legal">
-        <span className="landing-legal__eyebrow">STASHWELL · DEVELOPER PREVIEW</span>
+        <span className="landing-legal__eyebrow">STASHWELL · LEGAL</span>
         <h1>{title}</h1>
         <p className="landing-legal__lead">{description}</p>
         {sections.map(({ title: sectionTitle, paragraphs }) => (
